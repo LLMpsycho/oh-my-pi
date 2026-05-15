@@ -574,6 +574,16 @@ class SandboxManager:
                     ],
                     cwd=pool,
                 )
+        else:
+            current = _safe_run(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=repo_dir)
+            if current.returncode == 0 and current.stdout.strip():
+                branch = current.stdout.strip()
+                if existing_branch is not None and existing_branch != branch:
+                    log.warning(
+                        "workspace branch mapping %r differs from checked-out branch %r; using checkout",
+                        existing_branch,
+                        branch,
+                    )
         # Identity is set on the worktree's shared config; idempotent.
         _safe_run(["git", "config", "user.email", author_email], cwd=repo_dir)
         _safe_run(["git", "config", "user.name", author_name], cwd=repo_dir)

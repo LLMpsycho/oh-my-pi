@@ -564,6 +564,35 @@ def test_ensure_workspace_refreshes_permissions_for_retry_slot_and_session(
     assert chowns == [(ws1.root, 2001), (ws1.root, 2002)]
 
 
+def test_ensure_workspace_preserves_checked_out_branch_on_replay(tmp_path: Path, upstream_repo: Path) -> None:
+    mgr = SandboxManager(tmp_path / "workspaces")
+    ws1 = mgr.ensure_workspace(
+        repo="octo/widget",
+        number=45,
+        title="retry me",
+        clone_url=str(upstream_repo),
+        default_branch="main",
+        slot_uid=None,
+        author_name="robomp-bot",
+        author_email="robomp-bot@example.invalid",
+    )
+    renamed = "farm/abc12345/renamed"
+    _git(["-C", str(ws1.repo_dir), "branch", "-m", ws1.branch, renamed], cwd=ws1.repo_dir.parent)
+
+    ws2 = mgr.ensure_workspace(
+        repo="octo/widget",
+        number=45,
+        title="retry me",
+        clone_url=str(upstream_repo),
+        default_branch="main",
+        slot_uid=None,
+        author_name="robomp-bot",
+        author_email="robomp-bot@example.invalid",
+    )
+
+    assert ws2.branch == renamed
+
+
 def test_ensure_workspace_invokes_slot_chown(
     tmp_path: Path, upstream_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
