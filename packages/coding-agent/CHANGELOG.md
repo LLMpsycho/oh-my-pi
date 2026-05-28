@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Autonomous Memory phase 1/phase 2 failing with `Thinking effort low is not supported by <provider>/<model>` on models whose supported reasoning efforts exclude `low`/`medium` (e.g. `deepseek/deepseek-v4-pro`). Both stage1 (`Effort.Low`) and consolidation (`Effort.Medium`) call sites in `packages/coding-agent/src/memories/index.ts` now route through `clampThinkingLevelForModel`, lifting the requested effort to the model's lowest supported level instead of letting `requireSupportedEffort` throw ([#1480](https://github.com/can1357/oh-my-pi/issues/1480)).
+
 ## [15.5.10] - 2026-05-28
 
 ### Added
