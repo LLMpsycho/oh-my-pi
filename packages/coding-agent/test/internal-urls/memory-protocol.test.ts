@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { InternalUrlRouter } from "@oh-my-pi/pi-coding-agent/internal-urls";
 import { getMemoryRoot } from "@oh-my-pi/pi-coding-agent/memories";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
@@ -15,7 +16,10 @@ interface MemoryFixture {
 	cleanupRoot: string;
 }
 
-async function withMemoryFixture(fn: (fixture: MemoryFixture) => Promise<void>): Promise<void> {
+async function withMemoryFixture(
+	fn: (fixture: MemoryFixture) => Promise<void>,
+	options?: { settings?: Settings },
+): Promise<void> {
 	const cleanupRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-protocol-"));
 	const previousAgentDir = getAgentDir();
 	try {
@@ -24,13 +28,15 @@ async function withMemoryFixture(fn: (fixture: MemoryFixture) => Promise<void>):
 		const cwd = path.join(cleanupRoot, "project");
 		await fs.mkdir(cwd, { recursive: true });
 		setAgentDir(agentDir);
-		const memoryRoot = getMemoryRoot(agentDir, cwd);
+		const projectKey = options?.settings?.get("memory.projectKey");
+		const memoryRoot = getMemoryRoot(agentDir, cwd, projectKey);
 		await fs.mkdir(memoryRoot, { recursive: true });
 		AgentRegistry.global().register({
 			id: "test-main",
 			displayName: "test",
 			kind: "main",
 			session: {
+				...(options?.settings ? { settings: options.settings } : {}),
 				sessionManager: {
 					getCwd: () => cwd,
 					getArtifactsDir: () => null,
@@ -67,6 +73,22 @@ describe("MemoryProtocolHandler", () => {
 			expect(resource.content).toBe("summary");
 			expect(resource.contentType).toBe("text/markdown");
 		});
+	});
+
+	it("resolves memory://root from the configured project identity", async () => {
+		const settings = Settings.isolated({ "memory.projectKey": "github.com/Org/Repo" });
+		await withMemoryFixture(
+			async ({ memoryRoot }) => {
+				await Bun.write(path.join(memoryRoot, "memory_summary.md"), "project summary");
+
+				const router = InternalUrlRouter.instance();
+				const resource = await router.resolve("memory://root");
+
+				expect(path.basename(memoryRoot)).toStartWith("--github-com-org-repo-");
+				expect(resource.content).toBe("project summary");
+			},
+			{ settings },
+		);
 	});
 
 	it("resolves memory://root/<path> within memory root", async () => {

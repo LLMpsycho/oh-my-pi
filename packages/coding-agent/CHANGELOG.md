@@ -14,6 +14,7 @@
 - Added a structured memory runtime surface for extensions and UI integrations to query backend status, search memories, and save explicit memories across the configured memory backend.
 - Added support for Git repositories using the `reftable` storage format by detecting `extensions.refStorage = reftable` in the repository configuration and falling back to shelling out to Git commands (`git symbolic-ref`, `git rev-parse`) for reference and HEAD resolution.
 - Added `/setup providers` (also available as `/setup` or `/providers`) to reopen the interactive provider setup scene from an active TUI session, letting users sign in and choose a web search provider without rerunning the full onboarding flow.
+- Added `memory.projectKey`, a `/settings` memory identity that keeps local memory roots, Hindsight scopes, and Mnemopi banks stable across worktrees, clones, and forks while still auto-detecting git remotes when unset.
 
 ### Changed
 

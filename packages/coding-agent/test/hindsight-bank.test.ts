@@ -64,6 +64,7 @@ const baseConfig = (overrides: Partial<HindsightConfig> = {}): HindsightConfig =
 	mentalModelRefreshIntervalMs: 5 * 60 * 1000,
 	mentalModelMaxRenderChars: 16_000,
 	...overrides,
+	projectKey: overrides.projectKey ?? null,
 });
 
 describe("computeBankScope", () => {
@@ -93,16 +94,16 @@ describe("computeBankScope", () => {
 	});
 
 	describe("scoping=per-project", () => {
-		it("appends the cwd basename to the base bank id", () => {
-			expect(computeBankScope(baseConfig({ scoping: "per-project" }), "/work/proj")).toEqual({
-				bankId: "omp-proj",
-			});
+		it("appends a path-hashed cwd fallback to the base bank id", () => {
+			const scope = computeBankScope(baseConfig({ scoping: "per-project" }), "/work/proj");
+
+			expect(scope.bankId).toStartWith("omp-cwd-proj-");
 		});
 
 		it("appends `unknown` for an empty cwd", () => {
-			expect(computeBankScope(baseConfig({ scoping: "per-project" }), "")).toEqual({
-				bankId: "omp-unknown",
-			});
+			const scope = computeBankScope(baseConfig({ scoping: "per-project" }), "");
+
+			expect(scope.bankId).toStartWith("omp-unknown-");
 		});
 
 		it("composes prefix + bankId + project", () => {
@@ -110,7 +111,7 @@ describe("computeBankScope", () => {
 				baseConfig({ scoping: "per-project", bankId: "team", bankIdPrefix: "prod" }),
 				"/work/cool-app",
 			);
-			expect(scope.bankId).toBe("prod-team-cool-app");
+			expect(scope.bankId).toStartWith("prod-team-cwd-cool-app-");
 		});
 
 		it("does not surface tag fields (isolation is at the bank level)", () => {
@@ -122,31 +123,31 @@ describe("computeBankScope", () => {
 
 	describe("scoping=per-project-tagged", () => {
 		it("keeps the base bank id and emits project tags with `any` match", () => {
-			expect(computeBankScope(baseConfig({ scoping: "per-project-tagged" }), "/work/proj")).toEqual({
-				bankId: "omp",
-				retainTags: ["project:proj"],
-				recallTags: ["project:proj"],
-				recallTagsMatch: "any",
-			});
+			const scope = computeBankScope(baseConfig({ scoping: "per-project-tagged" }), "/work/proj");
+
+			expect(scope.bankId).toBe("omp");
+			expect(scope.retainTags?.[0]).toStartWith("project:cwd/proj/");
+			expect(scope.recallTags?.[0]).toStartWith("project:cwd/proj/");
+			expect(scope.recallTagsMatch).toBe("any");
 		});
 
 		it("uses the same project label for retain and recall tags", () => {
 			const scope = computeBankScope(baseConfig({ scoping: "per-project-tagged" }), "/repo/cool-app");
-			expect(scope.retainTags).toEqual(["project:cool-app"]);
-			expect(scope.recallTags).toEqual(["project:cool-app"]);
+			expect(scope.retainTags?.[0]).toStartWith("project:cwd/cool-app/");
+			expect(scope.recallTags).toEqual(scope.retainTags);
 		});
 
 		it("falls back to project:unknown when cwd is empty", () => {
 			const scope = computeBankScope(baseConfig({ scoping: "per-project-tagged" }), "");
 			expect(scope.retainTags).toEqual(["project:unknown"]);
-			expect(scope.recallTags).toEqual(["project:unknown"]);
+			expect(scope.recallTags).toEqual(scope.retainTags);
 		});
 	});
 
-	// Regression for #2232: linked git worktrees used to silo memory into
-	// distinct `project:<basename>` tags. The fix resolves the primary
-	// checkout root via `git.repo.primaryRootSync`, so every worktree of one
-	// repo collapses to the same tag (and the same per-project bank id).
+	// Regression for #2232 and follow-up stable identity scoping: linked git
+	// worktrees should resolve to one project identity. With a remote, that
+	// identity is the normalized remote key. Without a remote, it is a stable
+	// local key derived from the shared git common dir.
 	describe("git worktree handling", () => {
 		let baseDir: string;
 		let primaryRoot: string;
@@ -184,32 +185,30 @@ describe("computeBankScope", () => {
 		it("emits the same project tag from the primary checkout and a linked worktree", () => {
 			const fromPrimary = computeBankScope(baseConfig({ scoping: "per-project-tagged" }), primaryRoot);
 			const fromWorktree = computeBankScope(baseConfig({ scoping: "per-project-tagged" }), worktreeRoot);
-			expect(fromPrimary.retainTags).toEqual(["project:myrepo"]);
-			expect(fromWorktree.retainTags).toEqual(["project:myrepo"]);
+			expect(fromPrimary.retainTags?.[0]).toStartWith("project:local/myrepo/");
 			expect(fromWorktree).toEqual(fromPrimary);
 		});
 
 		it("uses the primary root basename for the per-project bank id from a worktree", () => {
-			expect(computeBankScope(baseConfig({ scoping: "per-project" }), worktreeRoot)).toEqual({
-				bankId: "omp-myrepo",
-			});
+			expect(computeBankScope(baseConfig({ scoping: "per-project" }), worktreeRoot).bankId).toStartWith(
+				"omp-local-myrepo-",
+			);
 		});
 
 		it("emits one shared project label across worktrees attached to a bare repository", () => {
 			const fromA = computeBankScope(baseConfig({ scoping: "per-project-tagged" }), bareWorktreeA);
 			const fromB = computeBankScope(baseConfig({ scoping: "per-project-tagged" }), bareWorktreeB);
-			expect(fromA.retainTags).toEqual(["project:bare-repo.git"]);
+			expect(fromA.retainTags?.[0]).toStartWith("project:local/bare-repo/");
 			expect(fromB).toEqual(fromA);
-			expect(computeBankScope(baseConfig({ scoping: "per-project" }), bareWorktreeB)).toEqual({
-				bankId: "omp-bare-repo.git",
-			});
+			expect(computeBankScope(baseConfig({ scoping: "per-project" }), bareWorktreeB).bankId).toStartWith(
+				"omp-local-bare-repo-",
+			);
 		});
 
-		it("falls back to the cwd basename outside any repository", () => {
+		it("falls back to a path-hashed cwd identity outside any repository", () => {
 			// The temp parent dir is not itself a repo — it just contains one.
-			expect(computeBankScope(baseConfig({ scoping: "per-project-tagged" }), baseDir).retainTags).toEqual([
-				`project:${path.basename(baseDir)}`,
-			]);
+			const tag = computeBankScope(baseConfig({ scoping: "per-project-tagged" }), baseDir).retainTags?.[0];
+			expect(tag).toStartWith(`project:cwd/${path.basename(baseDir).toLowerCase()}/`);
 		});
 	});
 });
@@ -217,7 +216,7 @@ describe("computeBankScope", () => {
 describe("deriveBankId (legacy wrapper)", () => {
 	it("returns the bankId field of the resolved scope", () => {
 		expect(deriveBankId(baseConfig({ bankId: "team", bankIdPrefix: "prod" }), "/cwd")).toBe("prod-team");
-		expect(deriveBankId(baseConfig({ scoping: "per-project" }), "/work/proj")).toBe("omp-proj");
+		expect(deriveBankId(baseConfig({ scoping: "per-project" }), "/work/proj")).toStartWith("omp-cwd-proj-");
 		expect(deriveBankId(baseConfig({ scoping: "per-project-tagged" }), "/work/proj")).toBe("omp");
 	});
 });

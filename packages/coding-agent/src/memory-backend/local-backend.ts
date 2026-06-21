@@ -9,9 +9,9 @@ import type { MemoryBackend } from "./types";
 /**
  * Wraps the existing `memories/` module as a `MemoryBackend`.
  *
- * No behavioural change — every call delegates to the legacy entry points so
- * the local memory pipeline (rollout summarisation → SQLite → memory_summary.md)
- * keeps working exactly as before.
+ * The local pipeline still owns rollout summarisation → SQLite →
+ * memory_summary.md; this adapter only supplies backend lifecycle hooks and
+ * passes through the configured project identity for scoped roots/jobs.
  */
 export const localBackend: MemoryBackend = {
 	id: "local",
@@ -21,11 +21,11 @@ export const localBackend: MemoryBackend = {
 	async buildDeveloperInstructions(agentDir, settings) {
 		return buildMemoryToolDeveloperInstructions(agentDir, settings);
 	},
-	async clear(agentDir, cwd) {
-		await clearMemoryData(agentDir, cwd);
+	async clear(agentDir, cwd, session) {
+		await clearMemoryData(agentDir, cwd, session?.settings.get("memory.projectKey"));
 	},
-	async enqueue(agentDir, cwd) {
-		enqueueMemoryConsolidation(agentDir, cwd);
+	async enqueue(agentDir, cwd, session) {
+		enqueueMemoryConsolidation(agentDir, cwd, session?.settings.get("memory.projectKey"));
 	},
 	async status() {
 		return {

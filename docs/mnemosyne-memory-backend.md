@@ -33,8 +33,9 @@ Recalled memory is background context, not instructions. Current user messages a
 | Setting                         | Default                | Description                                                                                                                                                             |
 | ------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `memory.backend`                | `off`                  | Set to `mnemopi` to enable this backend.                                                                                                                              |
-| `mnemopi.dbPath`              | agent memories dir     | Optional SQLite database path.                                                                                                                                          |
-| `mnemopi.bank`                | project directory name | Base bank name passed to `Mnemopi`; the coding-agent wrapper scopes from this base according to `mnemopi.scoping`.                                                  |
+| `memory.projectKey`             | unset                  | Optional stable project identity shared across worktrees, clones, and forks; `OMP_PROJECT_KEY` can override it, and git remotes are auto-detected when empty. |
+| `mnemopi.dbPath`                | agent memories dir     | Optional SQLite database path.                                                                                                                                          |
+| `mnemopi.bank`                  | default shared bank    | Base bank name passed to `Mnemopi`; the coding-agent wrapper scopes from this base according to `mnemopi.scoping`.                                                      |
 | `mnemopi.scoping`             | `per-project`          | Memory visibility mode: `global` = one shared bank, `per-project` = isolated project memory, `per-project-tagged` = project-local writes plus global recall visibility. |
 | `mnemopi.autoRecall`          | `true`                 | Recall memory on the first turn of a session.                                                                                                                           |
 | `mnemopi.autoRetain`          | `true`                 | Retain completed turns automatically.                                                                                                                                   |
@@ -58,8 +59,10 @@ Recalled memory is background context, not instructions. Current user messages a
 The coding-agent wrapper applies scoping on top of the underlying `Mnemopi` package:
 
 - `global` uses one shared bank for recall and writes.
-- `per-project` writes to and recalls from a bank derived from the current git repository root (or cwd) plus a stable hash.
-- `per-project-tagged` writes to the project-local bank and recalls from both the project-local bank and the shared global bank, with duplicate recall results merged.
+- `per-project` writes to and recalls from a bank derived from the stable project identity.
+- `per-project-tagged` writes to the project-local identity bank and recalls from both the project-local bank and the shared global bank, with duplicate recall results merged.
+
+The project bank name uses the filesystem-safe segment of the memory project identity, including its collision-resistant hash suffix. Outside git repositories, that identity already includes a cwd basename plus path hash so unrelated directories with the same basename do not collide.
 
 The combined project-plus-global behavior lives in the wrapper. The `@oh-my-pi/pi-mnemopi` package itself still exposes banks and constructor options directly, including `bank` for selecting a bank name. Project-local banks other than the shared bank are stored as sibling bank databases managed by Mnemopi's `BankManager`.
 

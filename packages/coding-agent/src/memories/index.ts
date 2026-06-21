@@ -10,6 +10,7 @@ import { getAgentDbPath, getMemoriesDir, logger, parseJsonlLenient, prompt } fro
 import type { ModelRegistry } from "../config/model-registry";
 import { getModelMatchPreferences, resolveModelRoleValue } from "../config/model-resolver";
 import type { Settings } from "../config/settings";
+import { resolveConfiguredMemoryProjectKey, resolveMemoryProjectIdentity } from "../memory-project-identity";
 import consolidationTemplate from "../prompts/memories/consolidation.md" with { type: "text" };
 import readPathTemplate from "../prompts/memories/read-path.md" with { type: "text" };
 import stageOneInputTemplate from "../prompts/memories/stage_one_input.md" with { type: "text" };
@@ -22,6 +23,7 @@ import {
 	enqueueGlobalWatermark,
 	heartbeatGlobalJob,
 	listStage1OutputsForGlobal,
+	listThreadScopes,
 	type MemoryThread,
 	markGlobalPhase2Failed,
 	markGlobalPhase2FailedUnowned,
@@ -29,6 +31,7 @@ import {
 	markStage1Failed,
 	markStage1SucceededNoOutput,
 	markStage1SucceededWithOutput,
+	migrateThreadProjectScope,
 	openMemoryDb,
 	type Stage1Claim,
 	type Stage1OutputRow,
@@ -38,6 +41,7 @@ import {
 
 interface MemoryRuntimeConfig {
 	enabled: boolean;
+	projectKey: string | null;
 	maxRolloutsPerStartup: number;
 	maxRolloutAgeDays: number;
 	minRolloutIdleHours: number;
@@ -57,6 +61,7 @@ interface MemoryRuntimeConfig {
 
 const DEFAULTS: MemoryRuntimeConfig = {
 	enabled: false,
+	projectKey: null,
 	maxRolloutsPerStartup: 64,
 	maxRolloutAgeDays: 30,
 	minRolloutIdleHours: 12,
@@ -154,7 +159,7 @@ export async function buildMemoryToolDeveloperInstructions(
 ): Promise<string | undefined> {
 	const cfg = loadMemoryConfig(settings);
 	if (!cfg.enabled) return undefined;
-	const memoryRoot = getMemoryRoot(agentDir, settings.getCwd());
+	const memoryRoot = getMemoryRoot(agentDir, settings.getCwd(), cfg.projectKey);
 	const summaryPath = path.join(memoryRoot, "memory_summary.md");
 
 	let text: string;
@@ -177,23 +182,37 @@ export async function buildMemoryToolDeveloperInstructions(
 /**
  * Clear all persisted memory state and generated artifacts.
  */
-export async function clearMemoryData(agentDir: string, cwd: string): Promise<void> {
+export async function clearMemoryData(
+	agentDir: string,
+	cwd: string,
+	configuredProjectKey?: string | null,
+): Promise<void> {
+	const projectKey = resolveConfiguredMemoryProjectKey(configuredProjectKey);
+	const scopeKey = resolveLocalMemoryProjectKey(cwd, projectKey);
 	const db = openMemoryDb(getAgentDbPath(agentDir));
 	try {
-		clearMemoryDataInDb(db);
+		clearMemoryDataInDb(db, scopeKey, cwd);
 	} finally {
 		closeMemoryDb(db);
 	}
-	await fs.rm(getMemoryRoot(agentDir, cwd), { recursive: true, force: true });
+	await fs.rm(getMemoryRoot(agentDir, cwd, projectKey), { recursive: true, force: true });
+	await fs.rm(getLegacyMemoryRoot(agentDir, cwd), { recursive: true, force: true });
 }
 
 /**
  * Force-enqueue global consolidation maintenance work.
  */
-export function enqueueMemoryConsolidation(agentDir: string, cwd: string, sourceUpdatedAt = unixNow()): void {
+export function enqueueMemoryConsolidation(
+	agentDir: string,
+	cwd: string,
+	configuredProjectKey?: string | null,
+	sourceUpdatedAt = unixNow(),
+): void {
+	const projectKey = resolveConfiguredMemoryProjectKey(configuredProjectKey);
+	const scopeKey = resolveLocalMemoryProjectKey(cwd, projectKey);
 	const db = openMemoryDb(getAgentDbPath(agentDir));
 	try {
-		enqueueGlobalWatermark(db, sourceUpdatedAt, cwd, { forceDirtyWhenNotAdvanced: true });
+		enqueueGlobalWatermark(db, sourceUpdatedAt, scopeKey, { forceDirtyWhenNotAdvanced: true });
 	} finally {
 		closeMemoryDb(db);
 	}
@@ -222,12 +241,15 @@ async function runPhase1(options: {
 	const db = openMemoryDb(getAgentDbPath(agentDir));
 	const nowSec = unixNow();
 	const workerId = `memory-${process.pid}`;
-	const memoryRoot = getMemoryRoot(agentDir, session.sessionManager.getCwd());
+	const activeCwd = session.sessionManager.getCwd();
+	const activeProjectKey = resolveMemoryProjectIdentity(activeCwd).key;
+	const memoryRoot = getMemoryRoot(agentDir, activeCwd, config.projectKey);
 	const currentThreadId = session.sessionManager.getSessionId();
 
 	try {
-		const threads = await collectThreads(session, currentThreadId);
+		const threads = await collectThreads(session, currentThreadId, config.projectKey);
 		upsertThreads(db, threads);
+		migrateLegacyThreadScopes(db, activeCwd, activeProjectKey, config.projectKey);
 
 		const phase1Model = await resolveMemoryModel({
 			modelRegistry,
@@ -356,22 +378,23 @@ async function runPhase2(options: {
 }): Promise<void> {
 	const { session, modelRegistry, agentDir, config } = options;
 	const cwd = session.sessionManager.getCwd();
+	const projectKey = resolveLocalMemoryProjectKey(cwd, config.projectKey);
 	const db = openMemoryDb(getAgentDbPath(agentDir));
 	const nowSec = unixNow();
 	const workerId = `memory-${process.pid}`;
-	const memoryRoot = getMemoryRoot(agentDir, cwd);
+	const memoryRoot = getMemoryRoot(agentDir, cwd, config.projectKey);
 
 	try {
 		const claimResult = tryClaimGlobalPhase2Job(db, {
 			workerId,
 			leaseSeconds: config.phase2LeaseSeconds,
 			nowSec,
-			cwd,
+			cwd: projectKey,
 		});
 		if (claimResult.kind !== "claimed") return;
 
 		const claim = claimResult.claim;
-		const outputs = listStage1OutputsForGlobal(db, config.maxRawMemoriesForGlobal, cwd);
+		const outputs = listStage1OutputsForGlobal(db, config.maxRawMemoriesForGlobal, projectKey);
 		const newWatermark = computeCompletionWatermark(claim.inputWatermark, outputs);
 
 		await syncPhase2Artifacts(memoryRoot, outputs);
@@ -381,7 +404,7 @@ async function runPhase2(options: {
 				ownershipToken: claim.ownershipToken,
 				newWatermark,
 				nowSec: unixNow(),
-				cwd,
+				cwd: projectKey,
 			});
 			if (!marked) {
 				logger.warn("Phase2 empty-input completion lost ownership", { memoryRoot });
@@ -400,7 +423,7 @@ async function runPhase2(options: {
 				retryDelaySeconds: config.phase2RetryDelaySeconds,
 				reason: "No model available for phase2",
 				memoryRoot,
-				cwd,
+				cwd: projectKey,
 			});
 			return;
 		}
@@ -411,7 +434,7 @@ async function runPhase2(options: {
 				retryDelaySeconds: config.phase2RetryDelaySeconds,
 				reason: "No API key available for phase2",
 				memoryRoot,
-				cwd,
+				cwd: projectKey,
 			});
 			return;
 		}
@@ -422,7 +445,7 @@ async function runPhase2(options: {
 				ownershipToken: claim.ownershipToken,
 				leaseSeconds: config.phase2LeaseSeconds,
 				nowSec: unixNow(),
-				cwd,
+				cwd: projectKey,
 			});
 			if (!ok) {
 				heartbeatLostOwnership = true;
@@ -449,7 +472,7 @@ async function runPhase2(options: {
 				ownershipToken: claim.ownershipToken,
 				newWatermark,
 				nowSec: unixNow(),
-				cwd,
+				cwd: projectKey,
 			});
 			if (!marked) {
 				throw new Error("Phase2 could not mark success: ownership lost");
@@ -460,7 +483,7 @@ async function runPhase2(options: {
 				retryDelaySeconds: config.phase2RetryDelaySeconds,
 				reason: String(error),
 				memoryRoot,
-				cwd,
+				cwd: projectKey,
 				error,
 			});
 		} finally {
@@ -509,10 +532,49 @@ function markPhase2FailureWithFallback(
 	}
 }
 
-async function collectThreads(session: AgentSession, currentThreadId?: string): Promise<MemoryThread[]> {
+function migrateLegacyThreadScopes(
+	db: Database,
+	activeCwd: string,
+	activeProjectKey: string,
+	configuredProjectKey?: string | null,
+): void {
+	const resolvedProjectKey = resolveMemoryProjectIdentity(activeCwd, configuredProjectKey).key;
+	for (const row of listThreadScopes(db)) {
+		if (row.cwd === resolvedProjectKey) continue;
+		if (!shouldApplyActiveProjectKey(row.cwd, activeCwd, activeProjectKey)) continue;
+		migrateThreadProjectScope(db, {
+			threadId: row.id,
+			projectKey: resolvedProjectKey,
+			sourceUpdatedAt: row.sourceUpdatedAt,
+		});
+	}
+}
+
+function shouldApplyActiveProjectKey(threadCwd: string, activeCwd: string, activeProjectKey: string): boolean {
+	if (!threadCwd) return false;
+	if (isSameFilesystemPath(threadCwd, activeCwd)) return true;
+	if (!looksLikeFilesystemPath(threadCwd)) return false;
+	return resolveMemoryProjectIdentity(threadCwd).key === activeProjectKey;
+}
+
+function isSameFilesystemPath(left: string, right: string): boolean {
+	return looksLikeFilesystemPath(left) && looksLikeFilesystemPath(right) && path.resolve(left) === path.resolve(right);
+}
+
+function looksLikeFilesystemPath(value: string): boolean {
+	return path.isAbsolute(value) || value.startsWith(".");
+}
+
+async function collectThreads(
+	session: AgentSession,
+	currentThreadId?: string,
+	configuredProjectKey?: string | null,
+): Promise<MemoryThread[]> {
 	const sessionDir = session.sessionManager.getSessionDir();
 	const files = await fs.readdir(sessionDir);
 	const threads: MemoryThread[] = [];
+	const activeCwd = session.sessionManager.getCwd();
+	const activeProjectKey = resolveMemoryProjectIdentity(activeCwd).key;
 	for (const name of files) {
 		if (!name.endsWith(".jsonl")) continue;
 		const fullPath = path.join(sessionDir, name);
@@ -538,11 +600,12 @@ async function collectThreads(session: AgentSession, currentThreadId?: string): 
 		}
 
 		if (currentThreadId && id === currentThreadId) continue;
+		const projectKey = resolveThreadMemoryProjectKey(cwd, activeCwd, activeProjectKey, configuredProjectKey);
 		threads.push({
 			id,
 			updatedAt: Math.floor(stat.mtimeMs / 1000),
 			rolloutPath: fullPath,
-			cwd,
+			cwd: projectKey,
 			sourceKind: "cli",
 		});
 	}
@@ -1102,6 +1165,7 @@ async function resolveMemoryModel(options: {
 function loadMemoryConfig(settings: Settings): MemoryRuntimeConfig {
 	return {
 		enabled: settings.get("memory.backend") === "local" || settings.get("memories.enabled") === true,
+		projectKey: resolveConfiguredMemoryProjectKey(settings.get("memory.projectKey")),
 		maxRolloutsPerStartup: settings.get("memories.maxRolloutsPerStartup") ?? DEFAULTS.maxRolloutsPerStartup,
 		maxRolloutAgeDays: settings.get("memories.maxRolloutAgeDays") ?? DEFAULTS.maxRolloutAgeDays,
 		minRolloutIdleHours: settings.get("memories.minRolloutIdleHours") ?? DEFAULTS.minRolloutIdleHours,
@@ -1121,12 +1185,33 @@ function loadMemoryConfig(settings: Settings): MemoryRuntimeConfig {
 	};
 }
 
-export function getMemoryRoot(agentDir: string, cwd: string): string {
-	return path.join(getMemoriesDir(agentDir), encodeProjectPath(cwd));
+function resolveLocalMemoryProjectKey(cwd: string, configuredProjectKey?: string | null): string {
+	const identity = resolveMemoryProjectIdentity(cwd, configuredProjectKey);
+	return identity.key;
 }
 
-function encodeProjectPath(cwd: string): string {
-	return `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+function resolveThreadMemoryProjectKey(
+	threadCwd: string,
+	activeCwd: string,
+	activeProjectKey: string,
+	configuredProjectKey?: string | null,
+): string {
+	const autoIdentity = resolveMemoryProjectIdentity(threadCwd);
+	if (!configuredProjectKey) return autoIdentity.key;
+	if (shouldApplyActiveProjectKey(threadCwd, activeCwd, activeProjectKey)) {
+		return resolveMemoryProjectIdentity(threadCwd, configuredProjectKey).key;
+	}
+	return autoIdentity.key;
+}
+
+export function getMemoryRoot(agentDir: string, cwd: string, configuredProjectKey?: string | null): string {
+	const identity = resolveMemoryProjectIdentity(cwd, configuredProjectKey);
+	return path.join(getMemoriesDir(agentDir), `--${identity.segment}--`);
+}
+
+function getLegacyMemoryRoot(agentDir: string, cwd: string): string {
+	const encoded = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+	return path.join(getMemoriesDir(agentDir), encoded);
 }
 
 function unixNow(): number {

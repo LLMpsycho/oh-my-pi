@@ -143,6 +143,85 @@ describe("memories/storage", () => {
 		closeMemoryDb(db);
 	});
 
+	test("upsertThreads re-enqueues processed outputs when a thread moves to a new project key", () => {
+		const db = openMemoryDb(dbPath);
+		upsertThreads(db, [
+			{
+				id: "thread-a",
+				updatedAt: 100,
+				rolloutPath: "/tmp/thread-a.jsonl",
+				cwd: "/repo",
+				sourceKind: "cli",
+			},
+		]);
+		db.prepare(
+			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("thread-a", 100, "raw", "summary", null, 100);
+
+		upsertThreads(db, [
+			{
+				id: "thread-a",
+				updatedAt: 100,
+				rolloutPath: "/tmp/thread-a.jsonl",
+				cwd: "github.com/org/repo",
+				sourceKind: "cli",
+			},
+		]);
+
+		const row = db
+			.prepare("SELECT status, input_watermark FROM jobs WHERE kind = ? AND job_key = ?")
+			.get(GLOBAL_KIND, "global:github.com/org/repo") as { status: string; input_watermark: number } | undefined;
+		expect(row).toEqual({ status: "pending", input_watermark: 100 });
+		closeMemoryDb(db);
+	});
+
+	test("scoped clear removes both project-key and legacy cwd rows", () => {
+		const db = openMemoryDb(dbPath);
+		upsertThreads(db, [
+			{ id: "legacy-thread", updatedAt: 100, rolloutPath: "/tmp/legacy.jsonl", cwd: "/repo", sourceKind: "cli" },
+			{
+				id: "project-thread",
+				updatedAt: 101,
+				rolloutPath: "/tmp/project.jsonl",
+				cwd: "github.com/org/repo",
+				sourceKind: "cli",
+			},
+			{
+				id: "other-thread",
+				updatedAt: 102,
+				rolloutPath: "/tmp/other.jsonl",
+				cwd: "github.com/other/repo",
+				sourceKind: "cli",
+			},
+		]);
+		db.prepare(
+			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("legacy-thread", 100, "legacy raw", "legacy summary", null, 100);
+		db.prepare(
+			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("project-thread", 101, "project raw", "project summary", null, 101);
+		db.prepare(
+			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("other-thread", 102, "other raw", "other summary", null, 102);
+		enqueueGlobalWatermark(db, 100, "/repo", { forceDirtyWhenNotAdvanced: true });
+		enqueueGlobalWatermark(db, 101, "github.com/org/repo", { forceDirtyWhenNotAdvanced: true });
+		enqueueGlobalWatermark(db, 102, "github.com/other/repo", { forceDirtyWhenNotAdvanced: true });
+
+		clearMemoryData(db, "github.com/org/repo", "/repo");
+
+		const threads = db.prepare("SELECT id FROM threads ORDER BY id").all() as { id: string }[];
+		const outputs = db.prepare("SELECT thread_id FROM stage1_outputs ORDER BY thread_id").all() as {
+			thread_id: string;
+		}[];
+		const jobs = db.prepare("SELECT job_key FROM jobs WHERE kind = ? ORDER BY job_key").all(GLOBAL_KIND) as {
+			job_key: string;
+		}[];
+		expect(threads.map(row => row.id)).toEqual(["other-thread"]);
+		expect(outputs.map(row => row.thread_id)).toEqual(["other-thread"]);
+		expect(jobs.map(row => row.job_key)).toEqual(["global:github.com/other/repo"]);
+		closeMemoryDb(db);
+	});
+
 	test("clearMemoryData removes thread/output/job state", () => {
 		const db = openMemoryDb(dbPath);
 		upsertThreads(db, [

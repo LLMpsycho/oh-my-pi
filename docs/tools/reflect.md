@@ -57,12 +57,12 @@ Mnemopi:
 - Mnemopi tool path: one local scoped recall followed by context formatting.
 - Hindsight bank scoping:
   - `global` — no tag filter.
-  - `per-project` — separate bank id per cwd basename.
-  - `per-project-tagged` — shared bank id plus `project:<cwd basename>` filter with `tagsMatch = "any"`.
+  - `per-project` — separate bank id per normalized project identity.
+  - `per-project-tagged` — shared bank id plus `project:<key>` filter with `tagsMatch = "any"`.
 - Mnemopi bank scoping:
   - `global` — reads the shared bank.
-  - `per-project` — reads the project bank.
-  - `per-project-tagged` — reads the project bank and shared bank, then merges results.
+  - `per-project` — reads the project-identity bank.
+  - `per-project-tagged` — reads the project-identity bank and shared bank, then merges results.
 - Session scope: reads cross-session memory data, but does not persist local output.
 
 ## Side Effects
@@ -77,6 +77,7 @@ Mnemopi:
 ## Limits & Caps
 - Tool availability requires `memory.backend` to be `"hindsight"` or `"mnemopi"`; default `memory.backend` is `"off"`.
 - Tool-level params: only `query` is required; `context` is optional.
+- Shared project scoping uses `memory.projectKey` or `OMP_PROJECT_KEY` before falling back to git identity detection.
 - Hindsight budget setting comes from `hindsight.recallBudget`, default `"mid"`.
 - Hindsight `reflect` has no client-side token cap parameter here; unlike `recall`, the tool does not pass `maxTokens`.
 - Hindsight mission initialization tracks up to `MISSION_SET_CAP = 10_000` bank ids, then drops the oldest half of the sorted set.

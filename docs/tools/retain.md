@@ -59,12 +59,12 @@ Mnemopi:
 - Mnemopi tool path: direct local `remember(...)` into the scoped retain bank.
 - Hindsight bank scoping from `computeBankScope(...)`:
   - `global` — one shared bank, no project tags.
-  - `per-project` — bank id gets `-<cwd basename>` appended.
-  - `per-project-tagged` — shared bank plus `project:<cwd basename>` tags on retained memories.
+  - `per-project` — bank id gets the normalized project-identity segment appended.
+  - `per-project-tagged` — shared bank plus `project:<key>` tags on retained memories.
 - Mnemopi bank scoping from `resolveBankScope(...)`:
   - `global` — retain and recall use the shared bank.
-  - `per-project` — retain and recall use the project bank.
-  - `per-project-tagged` — retain writes project-local memories; recall also reads the shared bank.
+  - `per-project` — retain and recall use the project-identity bank.
+  - `per-project-tagged` — retain writes project-identity memories; recall also reads the shared bank.
 - Session scope:
   - tool-called retains are per-session work for the active backend;
   - persisted Hindsight memories are cross-session server-side bank data;
@@ -91,6 +91,7 @@ Mnemopi:
 ## Limits & Caps
 - Input schema requires `items.length >= 1`.
 - Tool availability requires `memory.backend` to be `"hindsight"` or `"mnemopi"`; default `memory.backend` is `"off"`.
+- Shared project scoping uses `memory.projectKey` or `OMP_PROJECT_KEY` before falling back to git identity detection.
 - Hindsight queue flush threshold: `RETAIN_FLUSH_BATCH_SIZE = 16`.
 - Hindsight queue debounce: `RETAIN_FLUSH_INTERVAL_MS = 5_000`.
 - Hindsight queue writes use `retainBatch(..., { async: true })`; the client does not wait for server-side consolidation.

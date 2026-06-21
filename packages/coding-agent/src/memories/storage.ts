@@ -4,6 +4,7 @@ export interface MemoryThread {
 	id: string;
 	updatedAt: number;
 	rolloutPath: string;
+	/** Legacy DB column name; stores the resolved memory project key for new rows. */
 	cwd: string;
 	sourceKind: string;
 }
@@ -37,11 +38,11 @@ const GLOBAL_KIND = "memory_consolidate_global";
 const DEFAULT_RETRY_REMAINING = 3;
 
 /**
- * Per-project job key so Phase 2 consolidation is isolated to a single cwd.
- * Previously a single "global" key caused cross-project memory contamination.
+ * Per-memory-project job key so Phase 2 consolidation is isolated to a single
+ * resolved memory project identity.
  */
-function globalJobKey(cwd: string): string {
-	return `global:${cwd}`;
+function globalJobKey(projectKey: string): string {
+	return `global:${projectKey}`;
 }
 
 export function openMemoryDb(dbPath: string): Database {
@@ -92,14 +93,45 @@ export function closeMemoryDb(db: Database): void {
 	db.close();
 }
 
-export function clearMemoryData(db: Database): void {
-	db.exec(`
+export function clearMemoryData(db: Database, projectKey?: string, legacyCwd?: string): void {
+	const scopeKeys = uniqueScopeKeys(projectKey, legacyCwd);
+	if (scopeKeys.length === 0) {
+		db.exec(`
 DELETE FROM stage1_outputs;
 DELETE FROM threads;
 DELETE FROM jobs WHERE kind IN ('memory_stage1', 'memory_consolidate_global');
 `);
+		return;
+	}
+
+	const tx = db.transaction((keys: string[]) => {
+		for (const key of keys) {
+			db.prepare("DELETE FROM stage1_outputs WHERE thread_id IN (SELECT id FROM threads WHERE cwd = ?)").run(key);
+			db.prepare(`
+DELETE FROM jobs
+WHERE (kind = ? AND job_key IN (SELECT id FROM threads WHERE cwd = ?))
+   OR (kind = ? AND job_key = ?)
+`).run(STAGE1_KIND, key, GLOBAL_KIND, globalJobKey(key));
+			db.prepare("DELETE FROM threads WHERE cwd = ?").run(key);
+		}
+	});
+	tx(scopeKeys);
 }
 
+function uniqueScopeKeys(...keys: Array<string | undefined>): string[] {
+	return [...new Set(keys.filter((key): key is string => Boolean(key)))];
+}
+
+interface ExistingThreadScope {
+	cwd: string;
+	source_updated_at: number | null;
+}
+
+export interface MemoryThreadScope {
+	id: string;
+	cwd: string;
+	sourceUpdatedAt: number | null;
+}
 export function upsertThreads(db: Database, threads: MemoryThread[]): void {
 	if (threads.length === 0) return;
 	const stmt = db.prepare(`
@@ -111,12 +143,51 @@ ON CONFLICT(id) DO UPDATE SET
 	cwd = excluded.cwd,
 	source_kind = excluded.source_kind
 `);
+	const existingStmt = db.prepare(`
+SELECT t.cwd, o.source_updated_at
+FROM threads t
+LEFT JOIN stage1_outputs o ON o.thread_id = t.id
+WHERE t.id = ?
+`);
 	const tx = db.transaction((rows: MemoryThread[]) => {
 		for (const row of rows) {
+			const existing = existingStmt.get(row.id) as ExistingThreadScope | undefined;
 			stmt.run(row.id, row.updatedAt, row.rolloutPath, row.cwd, row.sourceKind);
+			if (existing?.cwd && existing.cwd !== row.cwd && existing.source_updated_at !== null) {
+				enqueueGlobalWatermark(db, existing.source_updated_at, row.cwd, { forceDirtyWhenNotAdvanced: true });
+			}
 		}
 	});
 	tx(threads);
+}
+
+export function listThreadScopes(db: Database): MemoryThreadScope[] {
+	const rows = db
+		.prepare(`
+SELECT t.id, t.cwd, o.source_updated_at
+FROM threads t
+LEFT JOIN stage1_outputs o ON o.thread_id = t.id
+`)
+		.all() as Array<{ id: string; cwd: string; source_updated_at: number | null }>;
+	return rows.map(row => ({
+		id: row.id,
+		cwd: row.cwd,
+		sourceUpdatedAt: row.source_updated_at,
+	}));
+}
+
+export function migrateThreadProjectScope(
+	db: Database,
+	params: { threadId: string; projectKey: string; sourceUpdatedAt: number | null },
+): void {
+	const tx = db.transaction(() => {
+		const result = db
+			.prepare("UPDATE threads SET cwd = ? WHERE id = ? AND cwd != ?")
+			.run(params.projectKey, params.threadId, params.projectKey);
+		if (Number(result.changes ?? 0) <= 0 || params.sourceUpdatedAt === null) return;
+		enqueueGlobalWatermark(db, params.sourceUpdatedAt, params.projectKey, { forceDirtyWhenNotAdvanced: true });
+	});
+	tx();
 }
 
 function ensureStage1Job(db: Database, threadId: string): void {
@@ -486,9 +557,10 @@ WHERE kind = ? AND job_key = ? AND status = 'running' AND ownership_token = ?
 	return Number(result.changes ?? 0) > 0;
 }
 
-// Filter by cwd so each project only consolidates its own thread outputs.
-// Before this filter existed, whichever project ran Phase 2 first got every
-// project's data written into its memory directory (see #369).
+// Filter by the resolved project key stored in `threads.cwd`, so each project
+// only consolidates its own thread outputs. Before this filter existed, whichever
+// project ran Phase 2 first wrote every project's data into its memory directory
+// (see #369).
 export function listStage1OutputsForGlobal(db: Database, limit: number, cwd: string): Stage1OutputRow[] {
 	const rows = db
 		.prepare(`

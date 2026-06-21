@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getAgentDir, isEnoent } from "@oh-my-pi/pi-utils";
 import { getMemoryRoot } from "../memories";
+import { resolveConfiguredMemoryProjectKey } from "../memory-project-identity";
 import { AgentRegistry } from "../registry/agent-registry";
 import { validateRelativePath } from "./skill-protocol";
 import type { InternalResource, InternalUrl, ProtocolHandler, UrlCompletion } from "./types";
@@ -20,7 +21,8 @@ export function memoryRootsFromRegistry(): string[] {
 	for (const ref of AgentRegistry.global().list()) {
 		const sm = ref.session?.sessionManager;
 		if (!sm) continue;
-		const root = getMemoryRoot(agentDir, sm.getCwd());
+		const projectKey = resolveConfiguredMemoryProjectKey(ref.session?.settings?.get("memory.projectKey"));
+		const root = getMemoryRoot(agentDir, sm.getCwd(), projectKey);
 		if (root && !roots.includes(root)) roots.push(root);
 	}
 	return roots;

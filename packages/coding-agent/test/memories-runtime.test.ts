@@ -7,10 +7,12 @@ import { Effort, type Model } from "@oh-my-pi/pi-ai";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import {
 	buildMemoryToolDeveloperInstructions,
+	clearMemoryData,
 	getMemoryRoot,
 	startMemoryStartupTask,
 } from "@oh-my-pi/pi-coding-agent/memories";
 import * as memoryStorage from "@oh-my-pi/pi-coding-agent/memories/storage";
+import { resolveMemoryProjectIdentity } from "@oh-my-pi/pi-coding-agent/memory-project-identity";
 import { getAgentDbPath, Snowflake } from "@oh-my-pi/pi-utils";
 
 interface SessionFixture {
@@ -301,6 +303,167 @@ describe("memories runtime", () => {
 		expect(spy.mock.calls[1]?.[2]?.reasoning).toBe(Effort.High);
 	});
 
+	test("explicit project key only rewrites matching histories in shared session dirs", async () => {
+		const fx = await createFixture({
+			"memory.projectKey": "github.com/current/repo",
+			"memories.minRolloutIdleHours": 999,
+		});
+		const unrelatedCwd = await makeTempDir("memories-runtime-unrelated");
+		const unrelatedSession = path.join(fx.sessionDir, "unrelated-session.jsonl");
+		await fs.writeFile(
+			unrelatedSession,
+			`${JSON.stringify({ type: "session", id: "unrelated-thread", cwd: unrelatedCwd })}\n`,
+		);
+		const sameProjectSession = path.join(fx.sessionDir, "same-project-session.jsonl");
+		await fs.writeFile(
+			sameProjectSession,
+			`${JSON.stringify({
+				type: "session",
+				id: "same-project-thread",
+				cwd: fx.session.sessionManager.getCwd(),
+			})}\n`,
+		);
+
+		startMemoryStartupTask({
+			session: fx.session,
+			settings: fx.settings,
+			modelRegistry: fx.modelRegistry,
+			agentDir: fx.agentDir,
+			taskDepth: 0,
+		});
+
+		await waitFor(() => {
+			const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+			try {
+				const unrelatedRow = db.prepare("SELECT cwd FROM threads WHERE id = ?").get("unrelated-thread") as
+					| { cwd: string }
+					| undefined;
+				const sameProjectRow = db.prepare("SELECT cwd FROM threads WHERE id = ?").get("same-project-thread") as
+					| { cwd: string }
+					| undefined;
+				expect(unrelatedRow?.cwd).toBe(resolveMemoryProjectIdentity(unrelatedCwd).key);
+				expect(sameProjectRow?.cwd).toBe("github.com/current/repo");
+			} finally {
+				memoryStorage.closeMemoryDb(db);
+			}
+		});
+	});
+
+	test("explicit project key migrates legacy stored thread outputs without the session file", async () => {
+		const fx = await createFixture({
+			"memory.projectKey": "github.com/current/repo",
+			"memories.minRolloutIdleHours": 999,
+		});
+		vi.spyOn(ai, "completeSimple").mockResolvedValueOnce({
+			stopReason: "end_turn",
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify({
+						memory_md: "# Memory\n\nMigrated",
+						memory_summary: "Migrated summary",
+						skills: [],
+					}),
+				},
+			],
+		} as any);
+
+		const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+		memoryStorage.upsertThreads(db, [
+			{
+				id: "legacy-thread",
+				updatedAt: 100,
+				rolloutPath: "/tmp/missing-legacy-thread.jsonl",
+				cwd: fx.session.sessionManager.getCwd(),
+				sourceKind: "cli",
+			},
+		]);
+		db.prepare(
+			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("legacy-thread", 100, "legacy raw", "legacy summary", null, 100);
+		memoryStorage.closeMemoryDb(db);
+
+		startMemoryStartupTask({
+			session: fx.session,
+			settings: fx.settings,
+			modelRegistry: fx.modelRegistry,
+			agentDir: fx.agentDir,
+			taskDepth: 0,
+		});
+
+		const memoryRoot = getMemoryRoot(fx.agentDir, fx.session.sessionManager.getCwd(), "github.com/current/repo");
+		await waitFor(async () => {
+			expect((await fs.readFile(path.join(memoryRoot, "MEMORY.md"), "utf8")).trim()).toBe("# Memory\n\nMigrated");
+			expect(await fs.readFile(path.join(memoryRoot, "raw_memories.md"), "utf8")).toContain("legacy raw");
+			const scopedDb = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+			try {
+				const row = scopedDb.prepare("SELECT cwd FROM threads WHERE id = ?").get("legacy-thread") as
+					| { cwd: string }
+					| undefined;
+				expect(row?.cwd).toBe("github.com/current/repo");
+			} finally {
+				memoryStorage.closeMemoryDb(scopedDb);
+			}
+		});
+	});
+
+	test("auto project identity migrates legacy stored thread outputs without the session file", async () => {
+		const fx = await createFixture({ "memories.minRolloutIdleHours": 999 });
+		vi.spyOn(ai, "completeSimple").mockResolvedValueOnce({
+			stopReason: "end_turn",
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify({
+						memory_md: "# Memory\n\nAuto migrated",
+						memory_summary: "Auto migrated summary",
+						skills: [],
+					}),
+				},
+			],
+		} as any);
+		const projectKey = resolveMemoryProjectIdentity(fx.session.sessionManager.getCwd()).key;
+
+		const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+		memoryStorage.upsertThreads(db, [
+			{
+				id: "auto-legacy-thread",
+				updatedAt: 100,
+				rolloutPath: "/tmp/missing-auto-legacy-thread.jsonl",
+				cwd: fx.session.sessionManager.getCwd(),
+				sourceKind: "cli",
+			},
+		]);
+		db.prepare(
+			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		).run("auto-legacy-thread", 100, "auto legacy raw", "auto legacy summary", null, 100);
+		memoryStorage.closeMemoryDb(db);
+
+		startMemoryStartupTask({
+			session: fx.session,
+			settings: fx.settings,
+			modelRegistry: fx.modelRegistry,
+			agentDir: fx.agentDir,
+			taskDepth: 0,
+		});
+
+		const memoryRoot = getMemoryRoot(fx.agentDir, fx.session.sessionManager.getCwd());
+		await waitFor(async () => {
+			expect((await fs.readFile(path.join(memoryRoot, "MEMORY.md"), "utf8")).trim()).toBe(
+				"# Memory\n\nAuto migrated",
+			);
+			const scopedDb = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+			try {
+				const row = scopedDb.prepare("SELECT cwd FROM threads WHERE id = ?").get("auto-legacy-thread") as
+					| { cwd: string }
+					| undefined;
+				expect(row?.cwd).toBe(projectKey);
+			} finally {
+				memoryStorage.closeMemoryDb(scopedDb);
+			}
+		});
+	});
+
 	test("phase2 sync prunes stale summaries and preserves raw memory ordering", async () => {
 		const fx = await createFixture();
 		vi.spyOn(ai, "completeSimple").mockResolvedValue({
@@ -317,20 +480,21 @@ describe("memories runtime", () => {
 			],
 		} as any);
 
+		const projectKey = resolveMemoryProjectIdentity(fx.session.sessionManager.getCwd()).key;
 		const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
 		memoryStorage.upsertThreads(db, [
 			{
 				id: "thread-a",
 				updatedAt: 100,
 				rolloutPath: "/tmp/a.jsonl",
-				cwd: fx.session.sessionManager.getCwd(),
+				cwd: projectKey,
 				sourceKind: "cli",
 			},
 			{
 				id: "thread-b",
 				updatedAt: 200,
 				rolloutPath: "/tmp/b.jsonl",
-				cwd: fx.session.sessionManager.getCwd(),
+				cwd: projectKey,
 				sourceKind: "cli",
 			},
 		]);
@@ -340,7 +504,7 @@ describe("memories runtime", () => {
 		db.prepare(
 			"INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES (?, ?, ?, ?, ?, ?)",
 		).run("thread-b", 200, "raw-b", "summary-b", "beta", 200);
-		memoryStorage.enqueueGlobalWatermark(db, 200, fx.session.sessionManager.getCwd(), {
+		memoryStorage.enqueueGlobalWatermark(db, 200, projectKey, {
 			forceDirtyWhenNotAdvanced: true,
 		});
 		memoryStorage.closeMemoryDb(db);
@@ -368,6 +532,7 @@ describe("memories runtime", () => {
 
 	test("phase2 empty-input cleanup removes consolidated files and skills dir", async () => {
 		const fx = await createFixture();
+		const projectKey = resolveMemoryProjectIdentity(fx.session.sessionManager.getCwd()).key;
 		const memoryRoot = getMemoryRoot(fx.agentDir, fx.session.sessionManager.getCwd());
 		await fs.mkdir(path.join(memoryRoot, "skills", "legacy"), { recursive: true });
 		await fs.writeFile(path.join(memoryRoot, "MEMORY.md"), "legacy memory");
@@ -375,7 +540,7 @@ describe("memories runtime", () => {
 		await fs.writeFile(path.join(memoryRoot, "skills", "legacy", "SKILL.md"), "legacy skill");
 
 		const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
-		memoryStorage.enqueueGlobalWatermark(db, 300, fx.session.sessionManager.getCwd(), {
+		memoryStorage.enqueueGlobalWatermark(db, 300, projectKey, {
 			forceDirtyWhenNotAdvanced: true,
 		});
 		memoryStorage.closeMemoryDb(db);
@@ -396,6 +561,49 @@ describe("memories runtime", () => {
 				"# Raw Memories\n\nNo raw memories yet.",
 			);
 		});
+	});
+
+	test("clearMemoryData removes configured project artifacts and legacy cwd artifacts", async () => {
+		const fx = await createFixture({ "memory.projectKey": "github.com/current/repo" });
+		const cwd = fx.session.sessionManager.getCwd();
+		const projectRoot = getMemoryRoot(fx.agentDir, cwd, "github.com/current/repo");
+		const legacyRoot = path.join(fx.agentDir, "memories", `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`);
+		await fs.mkdir(projectRoot, { recursive: true });
+		await fs.mkdir(legacyRoot, { recursive: true });
+		await fs.writeFile(path.join(projectRoot, "memory_summary.md"), "project");
+		await fs.writeFile(path.join(legacyRoot, "memory_summary.md"), "legacy");
+
+		const db = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+		memoryStorage.upsertThreads(db, [
+			{ id: "legacy-thread", updatedAt: 100, rolloutPath: "/tmp/legacy.jsonl", cwd, sourceKind: "cli" },
+			{
+				id: "project-thread",
+				updatedAt: 101,
+				rolloutPath: "/tmp/project.jsonl",
+				cwd: "github.com/current/repo",
+				sourceKind: "cli",
+			},
+			{
+				id: "other-thread",
+				updatedAt: 102,
+				rolloutPath: "/tmp/other.jsonl",
+				cwd: "github.com/other/repo",
+				sourceKind: "cli",
+			},
+		]);
+		memoryStorage.closeMemoryDb(db);
+
+		await clearMemoryData(fx.agentDir, cwd, "github.com/current/repo");
+
+		expect(await Bun.file(projectRoot).exists()).toBe(false);
+		expect(await Bun.file(legacyRoot).exists()).toBe(false);
+		const scopedDb = memoryStorage.openMemoryDb(getAgentDbPath(fx.agentDir));
+		try {
+			const rows = scopedDb.prepare("SELECT id FROM threads ORDER BY id").all() as { id: string }[];
+			expect(rows.map(row => row.id)).toEqual(["other-thread"]);
+		} finally {
+			memoryStorage.closeMemoryDb(scopedDb);
+		}
 	});
 });
 

@@ -67,6 +67,7 @@ function makeConfig(overrides: Partial<HindsightConfig> = {}): HindsightConfig {
 		mentalModelRefreshIntervalMs: 5 * 60 * 1000,
 		mentalModelMaxRenderChars: 16_000,
 		...overrides,
+		projectKey: overrides.projectKey ?? null,
 	};
 }
 

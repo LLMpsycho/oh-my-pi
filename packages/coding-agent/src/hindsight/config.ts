@@ -12,6 +12,7 @@
 
 import { logger } from "@oh-my-pi/pi-utils";
 import type { Settings } from "../config/settings";
+import { resolveConfiguredMemoryProjectKey } from "../memory-project-identity";
 
 export type HindsightScoping = "global" | "per-project" | "per-project-tagged";
 
@@ -22,6 +23,7 @@ export interface HindsightConfig {
 	bankId: string | null;
 	bankIdPrefix: string;
 	scoping: HindsightScoping;
+	projectKey: string | null;
 	bankMission: string;
 	retainMission: string | null;
 
@@ -117,6 +119,7 @@ export function loadHindsightConfig(settings: Settings, env: NodeJS.ProcessEnv =
 	const retainEveryNTurnsEnv = envInt(env.HINDSIGHT_RETAIN_EVERY_N_TURNS);
 
 	// Read from settings (each falls back to its schema default).
+	const projectKey = resolveConfiguredMemoryProjectKey(settings.get("memory.projectKey"), env);
 	const settingsRetainMode = pickRetainMode(settings.get("hindsight.retainMode"));
 	if (settings.get("hindsight.retainMode") && !settingsRetainMode) {
 		logger.warn("Hindsight: invalid retainMode setting, falling back to full-session", {
@@ -138,6 +141,7 @@ export function loadHindsightConfig(settings: Settings, env: NodeJS.ProcessEnv =
 		bankId: bankIdEnv ?? settings.get("hindsight.bankId") ?? null,
 		bankIdPrefix: settings.get("hindsight.bankIdPrefix") ?? "",
 		scoping: scopingEnv ?? settingsScoping ?? "per-project-tagged",
+		projectKey,
 		bankMission: bankMissionEnv ?? settings.get("hindsight.bankMission") ?? "",
 		retainMission: settings.get("hindsight.retainMission") ?? null,
 

@@ -1398,6 +1398,17 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"memory.projectKey": {
+		type: "string",
+		default: undefined,
+		ui: {
+			tab: "memory",
+			label: "Memory Project Identity",
+			description:
+				"Optional stable memory identity shared across worktrees, clones, and forks (for example github.com/org/repo). Leave empty to auto-detect from the git remote.",
+		},
+	},
+
 	// Mnemopi local SQLite memory backend.
 	"mnemopi.dbPath": {
 		type: "string",
@@ -1427,7 +1438,7 @@ export const SETTINGS_SCHEMA = {
 			tab: "memory",
 			label: "Mnemopi Scoping",
 			description:
-				"global = one shared bank; per-project = isolated bank per cwd; per-project-tagged = project-local writes plus global recall visibility",
+				"global = one shared bank; per-project = isolated bank per project identity; per-project-tagged = project-local writes plus global recall visibility",
 			options: [
 				{
 					value: "global",
@@ -1437,7 +1448,7 @@ export const SETTINGS_SCHEMA = {
 				{
 					value: "per-project",
 					label: "Per project",
-					description: "Project-local Mnemopi bank per cwd basename",
+					description: "Project-local Mnemopi bank per normalized project identity",
 				},
 				{
 					value: "per-project-tagged",
@@ -1581,7 +1592,8 @@ export const SETTINGS_SCHEMA = {
 		ui: {
 			tab: "memory",
 			label: "Hindsight Bank ID",
-			description: "Memory bank identifier (default: project name)",
+			description:
+				"Optional Hindsight bank base id. Per-project modes derive scope from the memory project identity.",
 			condition: "hindsightActive",
 		},
 	},
@@ -1595,7 +1607,7 @@ export const SETTINGS_SCHEMA = {
 			tab: "memory",
 			label: "Hindsight Scoping",
 			description:
-				"global = one shared bank; per-project = isolated bank per cwd; per-project-tagged = shared bank with project tags so global + project memories merge on recall",
+				"global = one shared bank; per-project = isolated bank per project identity; per-project-tagged = shared bank with project tags so global + project memories merge on recall",
 			options: [
 				{
 					value: "global",
@@ -1605,13 +1617,13 @@ export const SETTINGS_SCHEMA = {
 				{
 					value: "per-project",
 					label: "Per project",
-					description: "Isolated bank per cwd basename — projects cannot see each other's memories",
+					description: "Isolated bank per normalized project identity — projects cannot see each other's memories",
 				},
 				{
 					value: "per-project-tagged",
 					label: "Per project (tagged)",
 					description:
-						"Shared bank, retains tagged with project:<cwd>. Recall surfaces project + untagged global memories together",
+						"Shared bank, retains tagged with project:<key>. Recall surfaces project + untagged global memories together",
 				},
 			],
 			condition: "hindsightActive",

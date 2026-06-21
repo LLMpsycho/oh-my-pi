@@ -60,12 +60,12 @@ When no matches exist:
 - Backend auto-recall has a richer query-composition path in `HindsightSessionState.beforeAgentStartPrompt(...)` / `maybeRecallOnAgentStart(...)` and `MnemopiSessionState.beforeAgentStartPrompt(...)` / `maybeRecallOnAgentStart(...)`.
 - Hindsight bank scoping:
   - `global` — no tag filter.
-  - `per-project` — separate bank id per cwd basename.
-  - `per-project-tagged` — shared bank id plus `project:<cwd basename>` filter with `tagsMatch = "any"`, so project-tagged and untagged global memories can both surface.
+  - `per-project` — separate bank id per normalized project identity.
+  - `per-project-tagged` — shared bank id plus `project:<key>` filter with `tagsMatch = "any"`, so project-tagged and untagged global memories can both surface.
 - Mnemopi bank scoping:
   - `global` — recall reads the shared bank.
-  - `per-project` — recall reads the project bank.
-  - `per-project-tagged` — recall reads the project bank and shared bank, then merges results.
+  - `per-project` — recall reads the project-identity bank.
+  - `per-project-tagged` — recall reads the project-identity bank and shared bank, then merges results.
 - Session scope: reads cross-session memory data, using the active session's cached config and scope.
 
 ## Side Effects
@@ -79,6 +79,7 @@ When no matches exist:
 
 ## Limits & Caps
 - Tool availability requires `memory.backend` to be `"hindsight"` or `"mnemopi"`; default `memory.backend` is `"off"`.
+- Shared project scoping uses `memory.projectKey` or `OMP_PROJECT_KEY` before falling back to git identity detection.
 - Hindsight client default budget for raw `HindsightApi.recall(...)` is `"mid"`; this tool overrides from config.
 - Hindsight recall settings:
   - `hindsight.recallBudget = "mid"`

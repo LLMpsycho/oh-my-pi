@@ -3,13 +3,14 @@
  *
  * Three scoping modes (`HindsightConfig.scoping`):
  *   - `global`              — single shared bank, no per-project filter.
- *   - `per-project`         — one bank per cwd basename, hard isolation.
- *   - `per-project-tagged`  — single shared bank, retains carry a `project:<name>`
- *                              tag and recall filters on it but still surfaces
- *                              untagged ("global") memories alongside.
+ *   - `per-project`         — one bank per resolved project identity segment,
+ *                              hard isolation.
+ *   - `per-project-tagged`  — single shared bank, retains carry a
+ *                              `project:<identity>` tag and recall filters on it
+ *                              but still surfaces untagged ("global") memories.
  *
  * The base bank id is `bankIdPrefix-bankId` (default `omp`). Per-project mode
- * appends `-<project>`; tagged mode leaves the bank untouched and uses tags.
+ * appends `-<project-segment>`; tagged mode leaves the bank untouched and uses tags.
  *
  * Bank existence is idempotent at module level — a banksSet keeps track of
  * banks we've already PUT so each session boundary doesn't fire a fresh
@@ -20,15 +21,13 @@
  * lands against a missing bank.
  */
 
-import * as path from "node:path";
 import { logger } from "@oh-my-pi/pi-utils";
-import * as git from "../utils/git";
+import { resolveMemoryProjectIdentity } from "../memory-project-identity";
 import type { HindsightApi } from "./client";
 import type { HindsightConfig } from "./config";
 
 const DEFAULT_BANK_NAME = "omp";
 const PROJECT_TAG_PREFIX = "project:";
-const UNKNOWN_PROJECT = "unknown";
 const MISSION_SET_CAP = 10_000;
 
 export type RecallTagsMatch = "any" | "all" | "any_strict" | "all_strict";
@@ -55,26 +54,6 @@ function baseBankId(config: HindsightConfig): string {
 }
 
 /**
- * Best-effort project label from a working-directory path.
- *
- * When `directory` lives inside a git repository we resolve the primary
- * checkout root (or the shared common dir for bare-repo worktrees) via
- * {@link git.repo.primaryRootSync} and basename that, so every linked
- * worktree of one repo shares the same `project:<name>` tag.
- * Outside a repo (or when resolution fails), fall back to the cwd basename.
- *
- * Sync only: this runs on the hot path of `computeBankScope`, which is
- * exposed as a sync API to callers like `backend.ts` and must stay sync.
- * `git.repo.primaryRootSync` walks `.git`/`commondir` with sync file reads —
- * no subprocess — so the cost is one or two `stat`s and a small `readFile`.
- */
-function projectLabel(directory: string): string {
-	if (!directory) return UNKNOWN_PROJECT;
-	const primary = git.repo.primaryRootSync(directory);
-	return path.basename(primary ?? directory) || UNKNOWN_PROJECT;
-}
-
-/**
  * Resolve the active bank target plus optional tag scoping.
  *
  * Always returns a non-empty `bankId`. Tag fields are populated only for
@@ -82,13 +61,14 @@ function projectLabel(directory: string): string {
  */
 export function computeBankScope(config: HindsightConfig, directory: string): BankScope {
 	const base = baseBankId(config);
+	const identity = resolveMemoryProjectIdentity(directory, config.projectKey);
 	switch (config.scoping) {
 		case "global":
 			return { bankId: base };
 		case "per-project":
-			return { bankId: `${base}-${projectLabel(directory)}` };
+			return { bankId: `${base}-${identity.segment}` };
 		case "per-project-tagged": {
-			const tag = `${PROJECT_TAG_PREFIX}${projectLabel(directory)}`;
+			const tag = `${PROJECT_TAG_PREFIX}${identity.key}`;
 			return {
 				bankId: base,
 				retainTags: [tag],

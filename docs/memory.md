@@ -1,6 +1,6 @@
 # Autonomous Memory
 
-When the local memory backend is enabled, the agent automatically extracts durable knowledge from past sessions and injects a compact summary into future sessions for the same project. Over time it builds a project-scoped memory store — technical decisions, recurring workflows, pitfalls — that carries forward without manual effort.
+When the local memory backend is enabled, the agent automatically extracts durable knowledge from past sessions and injects a compact summary into future sessions for the same project identity. Over time it builds a project-scoped memory store — technical decisions, recurring workflows, pitfalls — that carries forward without manual effort.
 
 Disabled by default. Enable the local summary pipeline via `/settings` or `config.yml`:
 
@@ -82,12 +82,21 @@ If the requested memory role is not configured, memory model resolution falls ba
 | Setting                               | Default | Description                                                                                                                              |
 | ------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `memory.backend`                      | `off`   | Select `local` for this pipeline; legacy `memories.enabled: true` is migrated to `memory.backend: local` when no explicit backend is set |
+| `memory.projectKey`                 | unset   | Optional stable project identity shared across worktrees, clones, and forks. Use a value such as `github.com/org/repo`, or leave empty to auto-detect from git. |
 | `memories.maxRolloutAgeDays`          | `30`    | Sessions older than this are not processed                                                                                               |
 | `memories.minRolloutIdleHours`        | `12`    | Sessions active more recently than this are skipped                                                                                      |
 | `memories.maxRolloutsPerStartup`      | `64`    | Cap on sessions processed in a single startup                                                                                            |
 | `memories.summaryInjectionTokenLimit` | `5000`  | Max tokens of the summary injected into the system prompt                                                                                |
 
 Additional tuning knobs (concurrency, lease durations, token budgets) are available in config for advanced use.
+
+### Project identity
+
+Memory scopes use a stable project identity instead of the current directory name when possible. Resolver order is: `OMP_PROJECT_KEY`, then `memory.projectKey`, then git remotes, then local git common-dir identity, then a path-hashed current-directory identity. Set the environment variable or config setting to force an identity shared across worktrees, clones, and forks.
+
+Values such as `github.com/org/repo`, HTTPS remotes, SSH remotes, and plain host/org/repo keys normalize to lowercase `host/org/repo` with a trailing `.git` stripped. The filesystem-safe segment replaces other characters with `-` and appends a short hash suffix so different project keys cannot collapse to the same directory or bank name. For git remotes, OMP prefers `upstream`, then `origin`, then the first valid remote. Local repositories without remotes share the git common directory identity across linked worktrees.
+
+Hindsight `per-project` scopes append the filesystem-safe segment to the bank id; `per-project-tagged` scopes use the tag `project:<key>`. Local memory roots and Mnemopi per-project banks use the same filesystem-safe segment. Outside git repositories, the fallback identity includes the cwd basename plus a path hash so unrelated directories with the same basename do not collide.
 
 ## Key files
 
