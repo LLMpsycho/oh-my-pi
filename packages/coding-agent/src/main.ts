@@ -140,6 +140,7 @@ const HOST_DEFAULTED_SETTING_PATHS: SettingPath[] = [
 	"advisor.subagents",
 	"advisor.syncBacklog",
 	"advisor.immuneTurns",
+	"serviceTierAdvisor",
 ];
 
 const RPC_BACKGROUND_DEFAULTED_SETTING_PATHS: SettingPath[] = [
@@ -149,8 +150,16 @@ const RPC_BACKGROUND_DEFAULTED_SETTING_PATHS: SettingPath[] = [
 	"bash.autoBackground.thresholdMs",
 ];
 
+// Protocol-mode hosts opt into a small set of paths whose host-default we
+// re-apply at startup so embedders inherit OMP's neutral defaults instead of
+// the local user's globally-persisted preferences for interactive use. The
+// guard preserves any explicit configuration — caller `Settings.isolated`
+// overrides, project `.claude/settings.yml`, `--config` overlays, or global
+// `config.yml` — so the host default only kicks in when nothing is set. Without
+// it the override clobbers every caller/host choice (#2598, #3207).
 function applyDefaultSettingOverrides(settingPaths: SettingPath[], targetSettings: Settings): void {
 	for (const settingPath of settingPaths) {
+		if (targetSettings.isConfigured(settingPath)) continue;
 		targetSettings.override(settingPath, getDefault(settingPath));
 	}
 }
@@ -937,6 +946,7 @@ async function buildSessionOptions(
 interface RunRootCommandDependencies {
 	createAgentSession?: typeof createAgentSession;
 	discoverAuthStorage?: typeof discoverAuthStorage;
+	selectSession?: typeof selectSession;
 	runAcpMode?: RunAcpMode;
 	settings?: Settings;
 	forceSetupWizard?: boolean;
@@ -1123,7 +1133,8 @@ export async function runRootCommand(
 	// (see issue #1668).
 	if (typeof parsedArgs.resume === "string" && !sessionManager) {
 		writeStartupNotice(parsedArgs, `${chalk.dim("Resume cancelled: session is in another project.")}\n`);
-		return;
+		stopStartupWatchdog();
+		process.exit(0);
 	}
 
 	// Handle --resume (no value): show session picker
@@ -1139,17 +1150,26 @@ export async function runRootCommand(
 			preloadedAllSessions = await logger.time("SessionManager.listAll", SessionManager.listAll);
 			if (preloadedAllSessions.length === 0) {
 				writeStartupNotice(parsedArgs, `${chalk.dim("No sessions found")}\n`);
-				return;
+				stopStartupWatchdog();
+				process.exit(0);
 			}
 		}
 		pauseStartupWatchdog();
-		const selected = await logger.time("selectSession", selectSession, folderSessions, {
+		const selected = await logger.time("selectSession", deps.selectSession ?? selectSession, folderSessions, {
 			allSessions: preloadedAllSessions,
 		});
 		resumeStartupWatchdog();
 		if (!selected) {
 			writeStartupNotice(parsedArgs, `${chalk.dim("No session selected")}\n`);
-			return;
+			// Quit instead of returning: startup already armed long-lived handles
+			// (theme watcher + SIGWINCH/macOS appearance listeners via initTheme,
+			// settings save timer, model registry) that keep the event loop alive,
+			// so a bare return hangs the process after the picker leaves the alt
+			// screen. No session was built here, so there is nothing to flush. The
+			// in-session `/resume` picker (selector-controller.ts) takes a different
+			// onCancel that just closes the overlay — only this startup path exits.
+			stopStartupWatchdog();
+			process.exit(0);
 		}
 		// Resuming a session from another project: switch the process into that
 		// project's directory and refresh cwd-derived caches before the session is

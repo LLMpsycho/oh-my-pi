@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [16.2.0] - 2026-06-27
+
+### Added
+
+- Added `REM` (remove) and `MV` (move/rename) section operations to hashline patches, allowing files to be deleted or relocated (with snapshot history migration) directly within the edit tool.
+
+## [16.1.23] - 2026-06-26
+
+### Added
+
+- Updated prompt documentation to include support for Markdown section operations
+
+### Fixed
+
+- Improved file path recovery to correctly handle read-only or incorrectly typed paths
+
+## [16.1.14] - 2026-06-22
+
+### Fixed
+
+- Improved delimiter-balance repair to correctly identify and spare deleted structural closers
+- Prevented premature deletion of structural closers when existing code below the range covers them
+- Accurate tracking of inserted lines to improve boundary repair logic for surrounding code blocks
+- Fixed delimiter-balance repair so deleted closer suffixes are kept only when the replacement prefix still has unmatched openers for them, avoiding duplicated trailing braces while preserving omitted outer closers.
+
 ## [16.1.8] - 2026-06-20
 
 ### Fixed

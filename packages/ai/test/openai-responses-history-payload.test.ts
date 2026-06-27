@@ -222,6 +222,7 @@ const incrementalItems1 = [
 		content: [{ type: "output_text", text: "First response" }],
 		status: "completed",
 		id: "msg_1",
+		phase: "commentary",
 	},
 ];
 
@@ -232,6 +233,7 @@ const incrementalItems2 = [
 		content: [{ type: "output_text", text: "Second response" }],
 		status: "completed",
 		id: "msg_2",
+		phase: "final_answer",
 	},
 ];
 
@@ -436,6 +438,56 @@ describe("OpenAI responses history payload", () => {
 		expect(payload.input).toEqual([
 			...snapshotHistoryItems,
 			{ role: "user", content: [{ type: "input_text", text: "follow-up user" }] },
+		]);
+	});
+
+	it("drops unfinished image generation calls from replayed native history", async () => {
+		const model = getOpenAIReasoningModel("openai", "gpt-5-mini");
+		const context: Context = {
+			messages: [
+				{ role: "user", content: "first user", timestamp: Date.now() },
+				makeAssistantMessage(
+					[
+						{
+							id: "ig_failed",
+							type: "image_generation_call",
+							status: "failed",
+						},
+						{
+							id: "ig_generating",
+							type: "image_generation_call",
+							status: "generating",
+							action: "generate",
+						},
+						{
+							id: "ig_completed",
+							type: "image_generation_call",
+							status: "completed",
+							result: "base64-image",
+							action: "generate",
+							background: "opaque",
+							output_format: "png",
+							quality: "medium",
+						},
+					],
+					true,
+				),
+				{ role: "user", content: "follow-up user", timestamp: Date.now() },
+			],
+		};
+		const payload = (await captureResponsesPayload(model, context)) as { input?: unknown[] };
+		const imageGenerationItems = payload.input?.filter(item => {
+			if (!item || typeof item !== "object") return false;
+			return (item as { type?: unknown }).type === "image_generation_call";
+		});
+
+		expect(imageGenerationItems).toEqual([
+			{
+				id: "ig_completed",
+				type: "image_generation_call",
+				status: "completed",
+				result: "base64-image",
+			},
 		]);
 	});
 

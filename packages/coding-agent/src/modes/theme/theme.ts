@@ -169,6 +169,7 @@ export type SymbolKey =
 	| "lang.cpp"
 	| "lang.csharp"
 	| "lang.ruby"
+	| "lang.julia"
 	| "lang.php"
 	| "lang.swift"
 	| "lang.kotlin"
@@ -227,7 +228,9 @@ export type SymbolKey =
 	| "tool.review"
 	| "tool.inspectImage"
 	| "tool.goal"
-	| "tool.irc";
+	| "tool.irc"
+	| "tool.delete"
+	| "tool.move";
 
 type SymbolMap = Record<SymbolKey, string>;
 
@@ -369,6 +372,7 @@ const UNICODE_SYMBOLS: SymbolMap = {
 	"lang.cpp": "➕",
 	"lang.csharp": "♯",
 	"lang.ruby": "💎",
+	"lang.julia": "Ⓙ",
 	"lang.php": "🐘",
 	"lang.swift": "🕊",
 	"lang.kotlin": "🅺",
@@ -428,6 +432,8 @@ const UNICODE_SYMBOLS: SymbolMap = {
 	"tool.inspectImage": "🖼",
 	"tool.goal": "◎",
 	"tool.irc": "✉",
+	"tool.delete": "🗑",
+	"tool.move": "➜",
 };
 
 const NERD_SYMBOLS: SymbolMap = {
@@ -673,6 +679,7 @@ const NERD_SYMBOLS: SymbolMap = {
 	"lang.cpp": "\u{E61D}",
 	"lang.csharp": "\u{E7BC}",
 	"lang.ruby": "\u{E791}",
+	"lang.julia": "\u{E624}",
 	"lang.php": "\u{E608}",
 	"lang.swift": "\u{E755}",
 	"lang.kotlin": "\u{E634}",
@@ -732,6 +739,8 @@ const NERD_SYMBOLS: SymbolMap = {
 	"tool.inspectImage": "\uEAEA",
 	"tool.goal": "\uEBF8",
 	"tool.irc": "\uF086",
+	"tool.delete": "\uf12d",
+	"tool.move": "\uf061",
 };
 
 const ASCII_SYMBOLS: SymbolMap = {
@@ -870,6 +879,7 @@ const ASCII_SYMBOLS: SymbolMap = {
 	"lang.cpp": "cpp",
 	"lang.csharp": "cs",
 	"lang.ruby": "rb",
+	"lang.julia": "jl",
 	"lang.php": "php",
 	"lang.swift": "swift",
 	"lang.kotlin": "kt",
@@ -929,6 +939,8 @@ const ASCII_SYMBOLS: SymbolMap = {
 	"tool.inspectImage": "[i]",
 	"tool.goal": "(o)",
 	"tool.irc": "irc",
+	"tool.delete": "rm",
+	"tool.move": "mv",
 };
 
 const SYMBOL_PRESETS: Record<SymbolPreset, SymbolMap> = {
@@ -1335,6 +1347,8 @@ const langMap: Record<string, SymbolKey> = {
 	cs: "lang.csharp",
 	ruby: "lang.ruby",
 	rb: "lang.ruby",
+	julia: "lang.julia",
+	jl: "lang.julia",
 	php: "lang.php",
 	swift: "lang.swift",
 	kotlin: "lang.kotlin",
@@ -1404,6 +1418,20 @@ const langMap: Record<string, SymbolKey> = {
 	dylib: "lang.binary",
 	wasm: "lang.binary",
 	bin: "lang.binary",
+};
+
+/**
+ * Brand colors for language icons, keyed by the resolved `lang.*` SymbolKey.
+ * Used by {@link Theme.getLangIconStyled} so eval-kernel cell headers tint each
+ * language with its recognizable hue (JS yellow, Ruby red, Julia purple, Python
+ * blue) instead of a flat muted gray. Applied as truecolor/256 per the active
+ * color mode; languages without an entry fall back to the muted theme color.
+ */
+const LANG_BRAND_COLORS: Partial<Record<SymbolKey, string>> = {
+	"lang.javascript": "#f7df1e",
+	"lang.python": "#3776ab",
+	"lang.ruby": "#cc342d",
+	"lang.julia": "#9558b2",
 };
 
 /**
@@ -1873,6 +1901,21 @@ export class Theme {
 		const normalized = lang.toLowerCase();
 		const key = langMap[normalized];
 		return key ? this.#symbols[key] : this.#symbols["lang.default"];
+	}
+
+	/**
+	 * Language icon tinted with the language's brand color (see
+	 * {@link LANG_BRAND_COLORS}). Falls back to the muted theme color for
+	 * languages without a brand entry, and returns the bare (possibly empty)
+	 * icon when the active symbol preset has none.
+	 */
+	getLangIconStyled(lang: string | undefined): string {
+		const icon = this.getLangIcon(lang);
+		if (!icon) return icon;
+		const key = lang ? langMap[lang.toLowerCase()] : undefined;
+		const hex = key ? LANG_BRAND_COLORS[key] : undefined;
+		if (!hex) return this.fg("muted", icon);
+		return `${colorToAnsi(hex, this.mode)}${icon}\x1b[39m`;
 	}
 }
 
@@ -2789,23 +2832,36 @@ export function getSymbolTheme(): SymbolTheme {
 
 let cachedMarkdownTheme: MarkdownTheme | undefined;
 let cachedMarkdownThemeRef: Theme | undefined;
+let markdownMermaidRendering = true;
+
+export function setMarkdownMermaidRendering(enabled: boolean): void {
+	if (markdownMermaidRendering === enabled) return;
+	markdownMermaidRendering = enabled;
+	cachedMarkdownTheme = undefined;
+}
 
 export function getMarkdownTheme(): MarkdownTheme {
 	if (cachedMarkdownTheme !== undefined && cachedMarkdownThemeRef === theme) {
 		return cachedMarkdownTheme;
 	}
-	// Mermaid ASCII diagrams render with the active palette so they read as
-	// content rather than raw monochrome. Roles mirror the SVG renderer's
-	// mapping; `text`/`muted`/`border`/`borderMuted`/`accent` exist in every theme.
-	const mermaidColorMode = theme.getColorMode() === "truecolor" ? "truecolor" : "ansi256";
-	const mermaidTheme = {
-		fg: theme.getColorHex("text"),
-		border: theme.getColorHex("border"),
-		line: theme.getColorHex("muted"),
-		arrow: theme.getColorHex("accent"),
-		corner: theme.getColorHex("muted"),
-		junction: theme.getColorHex("borderMuted"),
-	};
+	const mermaid = markdownMermaidRendering
+		? (() => {
+				// Mermaid ASCII diagrams render with the active palette so they read as
+				// content rather than raw monochrome. Roles mirror the SVG renderer's
+				// mapping; `text`/`muted`/`border`/`borderMuted`/`accent` exist in every theme.
+				const mermaidColorMode =
+					theme.getColorMode() === "truecolor" ? ("truecolor" as const) : ("ansi256" as const);
+				const mermaidTheme = {
+					fg: theme.getColorHex("text"),
+					border: theme.getColorHex("border"),
+					line: theme.getColorHex("muted"),
+					arrow: theme.getColorHex("accent"),
+					corner: theme.getColorHex("muted"),
+					junction: theme.getColorHex("borderMuted"),
+				};
+				return { mermaidColorMode, mermaidTheme };
+			})()
+		: undefined;
 	const markdownTheme: MarkdownTheme = {
 		heading: (text: string) => theme.fg("mdHeading", text),
 		link: (text: string) => theme.fg("mdLink", text),
@@ -2822,8 +2878,14 @@ export function getMarkdownTheme(): MarkdownTheme {
 		underline: (text: string) => theme.underline(text),
 		strikethrough: (text: string) => chalk.strikethrough(text),
 		symbols: getSymbolTheme(),
-		resolveMermaidAscii: (source, maxWidth) =>
-			resolveMermaidAscii(source, { maxWidth, theme: mermaidTheme, colorMode: mermaidColorMode }),
+		resolveMermaidAscii: mermaid
+			? (source, maxWidth) =>
+					resolveMermaidAscii(source, {
+						maxWidth,
+						theme: mermaid.mermaidTheme,
+						colorMode: mermaid.mermaidColorMode,
+					})
+			: undefined,
 		highlightCode: (code: string, lang?: string): string[] => {
 			const validLang = lang && nativeSupportsLanguage(lang) ? lang : undefined;
 			const highlighted = highlightCached(code, validLang, theme);

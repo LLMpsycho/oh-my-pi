@@ -137,6 +137,17 @@ export interface InteractiveModeContext {
 
 	// State
 	isInitialized: boolean;
+	/**
+	 * `true` once `renderInitialMessages` has rendered the session transcript
+	 * into `chatContainer` at least once.
+	 *
+	 * Extension chat-rebuilds (`ExtensionUiController.#applyCustomMessageDisplay`)
+	 * are gated on this: rebuilding before the initial render would plant a
+	 * session-derived component into the chat that `renderInitialMessages` then
+	 * both re-renders from session entries AND re-appends via
+	 * `preserveExistingChat`, duplicating the message (issue #1955).
+	 */
+	initialChatRendered: boolean;
 	isBashMode: boolean;
 	toolOutputExpanded: boolean;
 	todoExpanded: boolean;
@@ -148,9 +159,13 @@ export interface InteractiveModeContext {
 	loopLimit?: LoopLimitRuntime;
 	planModePlanFilePath?: string;
 	hideThinkingBlock: boolean;
+	/**
+	 * Effective thinking-block visibility: true when hidden by user setting OR
+	 * thinking level is "off". Read this in render paths instead of
+	 * {@link hideThinkingBlock} so blocks are auto-hidden when thinking is off.
+	 */
+	readonly effectiveHideThinkingBlock: boolean;
 	proseOnlyThinking: boolean;
-	pendingImages: ImageContent[];
-	pendingImageLinks: (string | undefined)[];
 	compactionQueuedMessages: CompactionQueuedMessage[];
 	pendingTools: Map<string, ToolExecutionHandle>;
 	pendingBashComponents: BashExecutionComponent[];
@@ -258,6 +273,13 @@ export interface InteractiveModeContext {
 	 * delivery error should leave the signature set untouched.
 	 */
 	withLocalSubmission<T>(text: string, fn: () => Promise<T>, options?: { imageCount?: number }): Promise<T>;
+	/** Clears bookkeeping for an optimistic local user message once the matching session event arrives. */
+	clearOptimisticUserMessage(): void;
+	/** Replaces the raw optimistic user render with the canonical message emitted by the session. */
+	replaceOptimisticUserMessage(
+		message: AgentMessage,
+		options?: { imageLinks?: readonly (string | undefined)[] },
+	): void;
 	isKnownSlashCommand(text: string): boolean;
 	addMessageToChat(
 		message: AgentMessage,
@@ -272,6 +294,8 @@ export interface InteractiveModeContext {
 	findLastAssistantMessage(): AssistantMessage | undefined;
 	extractAssistantText(message: AssistantMessage): string;
 	updateEditorTopBorder(): void;
+	/** Refresh the running-subagents status badge from the active local or collab registry. */
+	syncRunningSubagentBadge(): void;
 	updateEditorBorderColor(): void;
 	rebuildChatFromMessages(): void;
 	setTodos(todos: TodoItem[] | TodoPhase[]): void;
@@ -304,7 +328,7 @@ export interface InteractiveModeContext {
 	handleCompactCommand(customInstructions?: string, mode?: CompactMode): Promise<CompactionOutcome>;
 	handleHandoffCommand(customInstructions?: string): Promise<void>;
 	handleShakeCommand(mode: ShakeMode): Promise<void>;
-	handleMoveCommand(targetPath: string): Promise<void>;
+	handleMoveCommand(targetPath?: string): Promise<void>;
 	handleRenameCommand(title: string): Promise<void>;
 	handleMemoryCommand(text: string): Promise<void>;
 	handleSTTToggle(): Promise<void>;

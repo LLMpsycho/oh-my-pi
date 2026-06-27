@@ -5,16 +5,10 @@ import {
 	type AgentTelemetryConfig,
 	type AgentTool,
 	AppendOnlyContextManager,
+	filterProviderReplayMessages,
 	type ThinkingLevel,
 } from "@oh-my-pi/pi-agent-core";
-import {
-	type Context,
-	type CredentialDisabledEvent,
-	type Message,
-	type Model,
-	type SimpleStreamOptions,
-	streamSimple,
-} from "@oh-my-pi/pi-ai";
+import type { Context, CredentialDisabledEvent, Message, Model, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
 import type { Dialect } from "@oh-my-pi/pi-ai/dialect";
 import {
 	getOpenAICodexTransportDetails,
@@ -24,13 +18,19 @@ import { FALLBACK_DIALECT, preferredDialect } from "@oh-my-pi/pi-catalog/identit
 import type { Component } from "@oh-my-pi/pi-tui";
 import { $env, $flag, getAgentDir, getProjectDir, logger, postmortem, prompt, Snowflake } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
-import { ADVISOR_READONLY_TOOL_NAMES, discoverWatchdogFiles } from "./advisor";
+import {
+	ADVISOR_READONLY_TOOL_NAMES,
+	discoverWatchdogFiles,
+	formatActiveRepoWatchdogPrompt,
+	formatAdvisorContextPrompt,
+} from "./advisor";
 import { type AsyncJob, AsyncJobManager } from "./async";
 import { AutoLearnController, buildAutoLearnInstructions } from "./autolearn/controller";
 import { loadCapability } from "./capability";
 import { type Rule, ruleCapability, setActiveRules } from "./capability/rule";
 import { bucketRules } from "./capability/rule-buckets";
 import { shouldEnableAppendOnlyContext } from "./config/append-only-context-mode";
+import { shouldInlineToolDescriptors } from "./config/inline-tool-descriptors-mode";
 import { ModelRegistry } from "./config/model-registry";
 import {
 	formatModelString,
@@ -46,7 +46,9 @@ import { Settings, type SkillsSettings } from "./config/settings";
 import { CursorExecHandlers } from "./cursor";
 import "./discovery";
 import { initializeWithSettings } from "./discovery";
+import { disposeAllJuliaKernelSessions, disposeJuliaKernelSessionsByOwner } from "./eval/jl/executor";
 import { disposeAllKernelSessions, disposeKernelSessionsByOwner } from "./eval/py/executor";
+import { disposeAllRubyKernelSessions, disposeRubyKernelSessionsByOwner } from "./eval/rb/executor";
 import { defaultEvalSessionId } from "./eval/session-id";
 import {
 	type CustomCommandsLoadResult,
@@ -97,6 +99,7 @@ import { AgentRegistry, MAIN_AGENT_ID } from "./registry/agent-registry";
 import {
 	collectEnvSecrets,
 	deobfuscateSessionContext,
+	deobfuscateToolArguments,
 	loadSecrets,
 	obfuscateMessages,
 	obfuscateProviderContext,
@@ -112,8 +115,10 @@ import {
 	USER_INTERRUPT_LABEL,
 	wrapSteeringForModel,
 } from "./session/messages";
+import { clampProviderContextImages } from "./session/provider-image-budget";
 import { getRestorableSessionModels } from "./session/session-context";
 import { SessionManager } from "./session/session-manager";
+import { createSettingsAwareStreamFn } from "./session/settings-stream-fn";
 import { SnapcompactInlineTransformer } from "./session/snapcompact-inline";
 import { createSnapcompactSavingsRecorder } from "./session/snapcompact-savings-journal";
 import { closeAllConnections } from "./ssh/connection-manager";
@@ -154,8 +159,9 @@ import {
 	discoverStartupLspServers,
 	EditTool,
 	EvalTool,
-	FindTool,
 	filterInitialToolsForDiscoveryAll,
+	GlobTool,
+	GrepTool,
 	getSearchTools,
 	HIDDEN_TOOLS,
 	isImageProviderPreference,
@@ -166,7 +172,6 @@ import {
 	ReadTool,
 	ResolveTool,
 	renderSearchToolBm25Description,
-	SearchTool,
 	SearchToolBm25Tool,
 	setExcludedSearchProviders,
 	setPreferredImageProvider,
@@ -177,11 +182,13 @@ import {
 	WriteTool,
 	warmupLspServers,
 } from "./tools";
+import { normalizeToolName, normalizeToolNames } from "./tools/builtin-names";
 import { ToolContextStore } from "./tools/context";
 import { getImageGenTools } from "./tools/image-gen";
 import { wrapToolWithMetaNotice } from "./tools/output-meta";
 import { queueResolveHandler } from "./tools/resolve";
 import { ttsTool } from "./tools/tts";
+import { resolveActiveRepoContext } from "./utils/active-repo-context";
 import { EventBus } from "./utils/event-bus";
 import { buildNamedToolChoice } from "./utils/tool-choice";
 import { buildWorkspaceTree, type WorkspaceTree } from "./workspace-tree";
@@ -471,7 +478,7 @@ export interface CreateAgentSessionOptions {
 
 	/** Enable LSP integration (tool, formatting, diagnostics, warmup). Default: true */
 	enableLsp?: boolean;
-	/** Skip Python kernel availability check and prelude warmup */
+	/** Skip subprocess-kernel availability checks and prelude warmup */
 	skipPythonPreflight?: boolean;
 	/** Tool names explicitly requested (enables disabled-by-default tools) */
 	toolNames?: string[];
@@ -602,12 +609,12 @@ export {
 	createTools,
 	EditTool,
 	EvalTool,
-	FindTool,
+	GlobTool,
+	GrepTool,
 	HIDDEN_TOOLS,
 	loadSshTool,
 	ReadTool,
 	ResolveTool,
-	SearchTool,
 	type ToolSession,
 	WebSearchTool,
 	WriteTool,
@@ -865,12 +872,14 @@ function registerSshCleanup(): void {
 	postmortem.register("ssh-cleanup", cleanupSshResources);
 }
 
-let pythonCleanupRegistered = false;
+let evalCleanupRegistered = false;
 
-function registerPythonCleanup(): void {
-	if (pythonCleanupRegistered) return;
-	pythonCleanupRegistered = true;
+function registerEvalCleanup(): void {
+	if (evalCleanupRegistered) return;
+	evalCleanupRegistered = true;
 	postmortem.register("python-cleanup", disposeAllKernelSessions);
+	postmortem.register("ruby-cleanup", disposeAllRubyKernelSessions);
+	postmortem.register("julia-cleanup", disposeAllJuliaKernelSessions);
 }
 
 function customToolToDefinition(tool: CustomTool): ToolDefinition {
@@ -960,6 +969,7 @@ function createCustomToolsExtension(tools: CustomTool[]): ExtensionFactory {
 					maxAttempts: event.maxAttempts,
 					delayMs: event.delayMs,
 					errorMessage: event.errorMessage,
+					errorId: event.errorId,
 				},
 				ctx,
 			),
@@ -1079,7 +1089,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const eventBus = options.eventBus ?? new EventBus();
 
 	registerSshCleanup();
-	registerPythonCleanup();
+	registerEvalCleanup();
 
 	// Pin authStorage to modelRegistry.authStorage: ModelRegistry.getApiKey() routes refresh
 	// failures through that instance, so any divergent storage handed to the bridge / mcpManager
@@ -1137,6 +1147,15 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		? Promise.resolve(options.contextFiles)
 		: logger.time("discoverContextFiles", discoverContextFiles, cwd, agentDir);
 	contextFilesPromise.catch(() => {});
+	const activeRepoContextPromise = logger.time("resolveActiveRepoContext", async () => {
+		try {
+			return await resolveActiveRepoContext(cwd);
+		} catch (err) {
+			logger.debug("Failed to resolve active repo context", { err: String(err) });
+			return null;
+		}
+	});
+	activeRepoContextPromise.catch(() => {});
 	const watchdogFilesPromise = logger.time("discoverWatchdogFiles", () => discoverWatchdogFiles(cwd, agentDir));
 	watchdogFilesPromise.catch(() => {});
 	const promptTemplatesPromise = options.promptTemplates
@@ -1217,7 +1236,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const allowedModels = await logger.time("resolveAllowedModels", () =>
 		resolveAllowedModels(modelRegistry, settings, modelMatchPreferences),
 	);
-	const defaultRoleSpec = logger.time("resolveDefaultModelRole", () =>
+	let defaultRoleSpec = logger.time("resolveDefaultModelRole", () =>
 		resolveModelRoleValue(settings.getModelRole("default"), allowedModels, {
 			settings,
 			matchPreferences: modelMatchPreferences,
@@ -1288,7 +1307,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const pickInitialThinkingLevel = (selectedModel: Model | undefined): ConfiguredThinkingLevel | undefined => {
 		let level = options.thinkingLevel;
 		if (level === undefined && hasExistingSession && hasThinkingEntry) {
-			level = parseThinkingLevel(existingSession.thinkingLevel);
+			level =
+				parseConfiguredThinkingLevel(existingSession.configuredThinkingLevel) ??
+				parseThinkingLevel(existingSession.thinkingLevel);
 		}
 		if (level === undefined && !hasThinkingEntry && restoredSessionThinkingLevel !== undefined) {
 			level = restoredSessionThinkingLevel;
@@ -1382,10 +1403,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		}
 		return result;
 	};
-	const [contextFiles, resolvedWorkspaceTree, watchdogFiles] = await Promise.all([
+	const [contextFiles, resolvedWorkspaceTree, watchdogFiles, activeRepoContext] = await Promise.all([
 		contextFilesPromise,
 		raceWithDeadline("buildWorkspaceTree", workspaceTreePromise),
 		watchdogFilesPromise,
+		activeRepoContextPromise,
 	]);
 
 	let agent: Agent;
@@ -1481,9 +1503,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			hasUI: options.hasUI ?? false,
 			enableLsp,
 			get hasEditTool() {
-				const requestedToolNames = options.toolNames
-					? [...new Set(options.toolNames.map(name => name.toLowerCase()))]
-					: undefined;
+				const requestedToolNames = options.toolNames ? normalizeToolNames(options.toolNames) : undefined;
 				return !requestedToolNames || requestedToolNames.includes("edit");
 			},
 			skipPythonPreflight: options.skipPythonPreflight,
@@ -1512,6 +1532,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			getModelString: () => (hasExplicitModel && model ? formatModelString(model) : undefined),
 			getActiveModelString,
 			getActiveModel: () => agent?.state.model ?? model,
+			getServiceTier: () => session?.serviceTier,
 			getImageAttachments: () => session?.getImageAttachments() ?? [],
 			getPlanModeState: () => session?.getPlanModeState(),
 			getPlanReferencePath: () => session?.getPlanReferencePath() ?? "local://PLAN.md",
@@ -1937,9 +1958,47 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			// Re-resolve the allowed set: extension factories above may have
 			// registered providers/models that weren't visible at startup.
 			const fallbackCandidates = await resolveAllowedModels(modelRegistry, settings, modelMatchPreferences);
-			const defaultModel = pickDefaultAvailableModel(fallbackCandidates.filter(hasModelAuth));
-			if (defaultModel) {
-				model = defaultModel;
+
+			// Retry the default-role lookup against the post-extension allowed
+			// set. Extension factories register providers AFTER the early
+			// `defaultRoleSpec` resolution, so a role pointing at an extension
+			// model (e.g. an openai-compat plugin's `posthog/claude-opus-4-8`)
+			// returned `undefined` there. Without this retry the next step's
+			// `pickDefaultAvailableModel` happily replaces the user's configured
+			// default with a bundled provider's default whenever a stray
+			// `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` is in the environment.
+			// (issue #3569)
+			if (!hasExplicitModel && !defaultRoleSpec.model) {
+				const reResolvedRoleSpec = resolveModelRoleValue(settings.getModelRole("default"), fallbackCandidates, {
+					settings,
+					matchPreferences: modelMatchPreferences,
+					modelRegistry,
+				});
+				if (reResolvedRoleSpec.model) {
+					defaultRoleSpec = reResolvedRoleSpec;
+					const resolvedDefaultModel = reResolvedRoleSpec.model;
+					model = resolvedDefaultModel;
+					modelFallbackMessage = undefined;
+					// Recompute the thinking level against the now-real model.
+					// `pickInitialThinkingLevel` closes over `defaultRoleSpec`,
+					// so the role's explicit selector (e.g. `:max`) now applies.
+					thinkingLevel = pickInitialThinkingLevel(resolvedDefaultModel);
+					autoThinking = thinkingLevel === AUTO_THINKING;
+					effectiveThinkingLevel = thinkingLevel === AUTO_THINKING ? undefined : thinkingLevel;
+					effectiveThinkingLevel = logger.time("resolveThinkingLevelForModel", () =>
+						autoThinking
+							? resolveProvisionalAutoLevel(resolvedDefaultModel)
+							: resolveThinkingLevelForModel(resolvedDefaultModel, effectiveThinkingLevel),
+					);
+					preconnectModelHost(resolvedDefaultModel.baseUrl);
+				}
+			}
+
+			if (!model) {
+				const defaultModel = pickDefaultAvailableModel(fallbackCandidates.filter(hasModelAuth));
+				if (defaultModel) {
+					model = defaultModel;
+				}
 			}
 			if (model) {
 				if (modelFallbackMessage) {
@@ -2019,18 +2078,22 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		);
 
 		// All built-in tools are active (conditional tools like git/ask return null from factory if disabled)
+		const builtInRegistryToolNames = new Set<string>();
 		const toolRegistry = new Map<string, Tool>();
 		for (const tool of builtinTools) {
 			toolRegistry.set(tool.name, tool);
+			builtInRegistryToolNames.add(tool.name);
 		}
 		if (!toolRegistry.has("goal") && settings.get("goal.enabled")) {
 			const goalTool = await logger.time("createTools:goal:session", HIDDEN_TOOLS.goal, toolSession);
 			if (goalTool) {
 				toolRegistry.set(goalTool.name, wrapToolWithMetaNotice(goalTool));
+				builtInRegistryToolNames.add(goalTool.name);
 			}
 		}
 		for (const tool of wrappedExtensionTools) {
 			toolRegistry.set(tool.name, tool);
+			builtInRegistryToolNames.delete(tool.name);
 		}
 		if (deferMCPDiscoveryForUI && mcpManager) {
 			for (const name of collectPendingMCPToolNames(options.toolNames, existingSession.selectedMCPToolNames)) {
@@ -2048,6 +2111,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		}
 		if (model?.provider === "cursor") {
 			toolRegistry.delete("edit");
+			builtInRegistryToolNames.delete("edit");
 		}
 
 		// `resolve` is hidden but must stay in the registry whenever any code path can invoke it:
@@ -2060,10 +2124,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		const needsResolveTool = hasDeferrableTools || planModeAvailable;
 		if (!needsResolveTool) {
 			toolRegistry.delete("resolve");
+			builtInRegistryToolNames.delete("resolve");
 		} else if (!toolRegistry.has("resolve")) {
 			const resolveTool = await logger.time("createTools:resolve:session", HIDDEN_TOOLS.resolve, toolSession);
 			if (resolveTool) {
 				toolRegistry.set(resolveTool.name, wrapToolWithMetaNotice(resolveTool));
+				builtInRegistryToolNames.add(resolveTool.name);
 			}
 		}
 
@@ -2080,6 +2146,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				searchTool.name,
 				new ExtensionToolWrapper(wrapToolWithMetaNotice(searchTool), extensionRunner) as Tool,
 			);
+			builtInRegistryToolNames.add(searchTool.name);
 		}
 		let mcpDiscoveryEnabled = effectiveDiscoveryMode !== "off"; // back-compat: true when any discovery active
 
@@ -2102,7 +2169,14 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			emitEvent: event => cursorEventEmitter?.(event),
 		});
 
-		const inlineToolDescriptors = settings.get("inlineToolDescriptors");
+		// Resolve the inline-descriptors setting against the session-start model.
+		// `auto` enforces the per-model policy (inline for Gemini, off otherwise);
+		// like the rest of the prune machinery this is fixed for the session, so a
+		// mid-session model switch keeps the start-time decision.
+		const inlineToolDescriptors = shouldInlineToolDescriptors(
+			settings.get("inlineToolDescriptors"),
+			model ? (modelRegistry.getCanonicalId(model) ?? model.id) : undefined,
+		);
 		const eagerTasks = settings.get("task.eager") !== "default";
 		const eagerTasksAlways = settings.get("task.eager") === "always";
 		const intentField = $flag("PI_INTENT_TRACING", settings.get("tools.intentTracing")) ? INTENT_FIELD : undefined;
@@ -2204,6 +2278,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				memoryRootEnabled: memoryBackend.id === "local",
 				model: settings.get("includeModelInPrompt") ? getActiveModelString() : undefined,
 				personality: agentKind === "sub" ? "none" : settings.get("personality"),
+				renderMermaid: settings.get("tui.renderMermaid"),
+				activeRepoContext,
 			});
 
 			if (options.systemPrompt === undefined) {
@@ -2219,9 +2295,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		};
 
 		const toolNamesFromRegistry = Array.from(toolRegistry.keys());
-		const explicitlyRequestedToolNames = options.toolNames
-			? [...new Set(options.toolNames.map(name => name.toLowerCase()))]
-			: undefined;
+		const explicitlyRequestedToolNames = options.toolNames ? normalizeToolNames(options.toolNames) : undefined;
 		// When `requireYieldTool` is set, the subagent's prompts and idle-reminders demand a
 		// `yield` call to terminate. The tool registry already includes `yield` (see
 		// `createTools`), but an explicit `toolNames` list would otherwise drop it from the
@@ -2271,13 +2345,14 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 					discoveryDefaultServers,
 				)
 			: [];
+		const normalizeRenamedBuiltinToolName = normalizeToolName;
 		let initialSelectedMCPToolNames: string[] = [];
 		let defaultSelectedMCPToolNames: string[] = [];
 		let initialToolNames = [...initialRequestedActiveToolNames];
 		if (mcpDiscoveryEnabled) {
-			const restoredSelectedMCPToolNames = existingSession.selectedMCPToolNames.filter(name =>
-				toolRegistry.has(name),
-			);
+			const restoredSelectedMCPToolNames = existingSession.selectedMCPToolNames
+				.map(normalizeRenamedBuiltinToolName)
+				.filter(name => toolRegistry.has(name));
 			defaultSelectedMCPToolNames = [
 				...new Set([...discoveryDefaultServerToolNames, ...explicitlyRequestedMCPToolNames]),
 			];
@@ -2326,10 +2401,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			initialToolNames = filterInitialToolsForDiscoveryAll(initialToolNames, {
 				loadModeOf: name => toolRegistry.get(name)?.loadMode,
 				essentialNames: new Set(computeEssentialBuiltinNames(settings)),
-				explicitlyRequested: new Set(options.toolNames?.map(name => name.toLowerCase()) ?? []),
+				explicitlyRequested: new Set(options.toolNames ? normalizeToolNames(options.toolNames) : []),
 				// Back-compat: persisted activations live under selectedMCPToolNames today (built-in
 				// activation persistence is a follow-up). MCP names won't collide with built-in names.
-				restored: new Set(existingSession.selectedMCPToolNames),
+				restored: new Set(existingSession.selectedMCPToolNames.map(normalizeRenamedBuiltinToolName)),
 				forceActive,
 			});
 		}
@@ -2393,9 +2468,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			});
 		};
 
-		// Final convertToLlm: chain block-images filter with secret obfuscation
+		// Final convertToLlm: live provider replay drops API-level refusal errors,
+		// then applies secret obfuscation to the remaining outbound context.
 		const convertToLlmFinal = (messages: AgentMessage[]): Message[] => {
-			const converted = convertToLlmWithBlockImages(messages);
+			const converted = filterProviderReplayMessages(convertToLlmWithBlockImages(messages));
 			if (!obfuscator?.hasSecrets()) return converted;
 			return obfuscateMessages(obfuscator, converted);
 		};
@@ -2405,8 +2481,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			return wrapSteeringForModel(withContext);
 		};
 		// Per-request provider-context transforms. Obfuscate FIRST so secrets are
-		// redacted from text before snapcompact rasterizes it into PNG frames.
-		// Both operate on the transient outgoing Context only — never persisted.
+		// redacted from text before snapcompact rasterizes it into PNG frames, then
+		// clamp images to the active provider budget before the request is sent.
 		const snapcompactSystemPromptMode = settings.get("snapcompact.systemPrompt");
 		const snapcompactInline =
 			snapcompactSystemPromptMode !== "none" || settings.get("snapcompact.toolResults")
@@ -2421,14 +2497,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 						createSnapcompactSavingsRecorder(() => sessionManager.getSessionFile() ?? null),
 					)
 				: undefined;
-		const transformProviderContext =
-			obfuscator || snapcompactInline
-				? async (context: Context, transformModel: Model): Promise<Context> => {
-						let transformed = obfuscator ? obfuscateProviderContext(obfuscator, context) : context;
-						if (snapcompactInline) transformed = await snapcompactInline.transform(transformed, transformModel);
-						return transformed;
-					}
-				: undefined;
+		const transformProviderContext = async (context: Context, transformModel: Model): Promise<Context> => {
+			let transformed = obfuscator ? obfuscateProviderContext(obfuscator, context) : context;
+			if (snapcompactInline) transformed = await snapcompactInline.transform(transformed, transformModel);
+			return clampProviderContextImages(transformed, transformModel);
+		};
 		const onPayload = async (payload: unknown, _model?: Model) => {
 			return await extensionRunner.emitBeforeProviderRequest(payload);
 		};
@@ -2458,6 +2531,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		// One-shot launch-latency marker: fired the first time the loop dispatches
 		// a chat request to the provider transport. See onFirstChatDispatch.
 		let notifyFirstChatDispatch = options.onFirstChatDispatch;
+		// Shared, settings-aware stream wrapper used by both the main agent and
+		// the advisor (via AgentSessionConfig.streamFn). Keeps OpenRouter
+		// sticky-routing variants, antigravity endpoint routing, in-flight caps,
+		// and the loop guard consistent across every agent the session drives.
+		const settingsAwareStreamFn = createSettingsAwareStreamFn(settings);
 		agent = new Agent({
 			initialState: {
 				systemPrompt,
@@ -2466,6 +2544,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				disableReasoning: shouldDisableReasoning(effectiveThinkingLevel),
 				tools: initialTools,
 			},
+			cwd,
+			// Live cwd: `/move` updates SessionManager (and process cwd) without
+			// reconstructing the Agent, so a static cwd would strand GitLab Duo Agent
+			// namespace/project discovery on the original repo's git remote. Re-read it
+			// per turn from the SessionManager.
+			cwdResolver: () => sessionManager.getCwd(),
 			convertToLlm: convertToLlmFinal,
 			onPayload,
 			onResponse,
@@ -2502,20 +2586,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 						});
 					}
 				}
-				const openrouterRoutingPreset = settings.get("providers.openrouterVariant");
-				const openrouterVariant =
-					openrouterRoutingPreset && openrouterRoutingPreset !== "default" ? openrouterRoutingPreset : undefined;
-				const antigravityEndpointMode = settings.get("providers.antigravityEndpoint");
-				return streamSimple(streamModel, context, {
-					...streamOptions,
-					openrouterVariant: streamOptions?.openrouterVariant ?? openrouterVariant,
-					antigravityEndpointMode: streamOptions?.antigravityEndpointMode ?? antigravityEndpointMode,
-					loopGuard: {
-						enabled: settings.get("model.loopGuard.enabled"),
-						checkAssistantContent: settings.get("model.loopGuard.checkAssistantContent"),
-						...streamOptions?.loopGuard,
-					},
-				});
+				return settingsAwareStreamFn(streamModel, context, streamOptions);
 			},
 			cursorExecHandlers,
 			transformToolCallArguments: (args, _toolName) => {
@@ -2525,7 +2596,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 					result = { ...result, timeout: Math.min(result.timeout, maxTimeout) };
 				}
 				if (obfuscator?.hasSecrets()) {
-					result = obfuscator.deobfuscateObject(result);
+					result = deobfuscateToolArguments(obfuscator, result);
 				}
 				return result;
 			},
@@ -2563,7 +2634,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		}
 
 		// Hard-isolated read-only toolset for the advisor (built unconditionally so
-		// it can be toggled at runtime). Fresh ReadTool/SearchTool/FindTool bound to a
+		// it can be toggled at runtime). Fresh ReadTool/GrepTool/GlobTool bound to a
 		// DISTINCT ToolSession so the advisor's investigative reads never touch the
 		// primary's snapshot, seen-lines, conflict, or summary caches (all keyed on
 		// session identity). `cwd` stays dynamic; edit/yield capabilities are off.
@@ -2591,15 +2662,21 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			.filter((tool): tool is Tool => tool != null)
 			.map(wrapToolWithMetaNotice);
 
-		let advisorWatchdogPrompt: string | undefined;
-		if (watchdogFiles && watchdogFiles.length > 0) {
-			advisorWatchdogPrompt = watchdogFiles.join("\n\n");
+		const advisorWatchdogPrompts = [...watchdogFiles];
+		if (activeRepoContext) {
+			advisorWatchdogPrompts.push(formatActiveRepoWatchdogPrompt(activeRepoContext));
 		}
+		const advisorWatchdogPrompt = advisorWatchdogPrompts.length > 0 ? advisorWatchdogPrompts.join("\n\n") : undefined;
+		// Hand the advisor the same project context files (AGENTS.md, etc.) the
+		// primary agent gets in its system prompt, so the read-only reviewer judges
+		// against the user's standing project rules instead of advising blind.
+		const advisorContextPrompt = formatAdvisorContextPrompt(contextFiles);
 		// Owned only when this session created the manager; subagents receive a
 		// parent's manager via `options.mcpManager` and MUST NOT disconnect it.
 		const ownedMcpManager = options.mcpManager ? undefined : mcpManager;
 		session = new AgentSession({
 			advisorWatchdogPrompt,
+			advisorContextPrompt,
 			agent,
 			pruneToolDescriptions: inlineToolDescriptors,
 			thinkingLevel: autoThinking ? AUTO_THINKING : effectiveThinkingLevel,
@@ -2623,9 +2700,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			skillsSettings: settings.getGroup("skills"),
 			modelRegistry,
 			toolRegistry,
+			builtInToolNames: builtInRegistryToolNames,
 			transformContext,
+			transformProviderContext,
 			onPayload,
 			onResponse,
+			advisorStreamFn: settingsAwareStreamFn,
 			convertToLlm: convertToLlmFinal,
 			rebuildSystemPrompt,
 			reloadSshTool,
@@ -2681,7 +2761,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			const originalDispose = session.dispose.bind(session);
 			session.dispose = async () => {
 				try {
-					// Reject new session work (Python/eval starts) the moment disposal
+					// Reject new session work (eval starts) the moment disposal
 					// begins — the lifecycle await below opens an async gap before
 					// AgentSession.dispose() would otherwise set its guards.
 					session.beginDispose();
@@ -2901,6 +2981,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 					await asyncJobManager.dispose({ timeoutMs: 3_000 });
 				}
 				await disposeKernelSessionsByOwner(evalKernelOwnerId);
+				await disposeRubyKernelSessionsByOwner(evalKernelOwnerId);
+				await disposeJuliaKernelSessionsByOwner(evalKernelOwnerId);
 				if (ownsAuthStorage) authStorage.close();
 			}
 		} catch (cleanupError) {
