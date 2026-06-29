@@ -81,6 +81,9 @@
 ### Removed
 
 - Removed history URI support for reading agent transcripts
+### Fixed
+
+- Fixed memory project scoping so Hindsight, Mnemopi, and local memory derive project identity from `memory.projectKey`, git remote, or git common-dir instead of cwd/worktree path.
 
 ## [16.2.2] - 2026-06-27
 

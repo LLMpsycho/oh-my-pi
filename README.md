@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/can1357/oh-my-pi/blob/main/assets/hero.png?raw=true" alt="omp">
+  <img src="https://github.com/LLMpsycho/oh-my-pi/blob/main/assets/hero.png?raw=true" alt="omp">
 </p>
 
 <p align="center">
@@ -9,9 +9,9 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent"><img src="https://img.shields.io/npm/v/@oh-my-pi/pi-coding-agent?style=flat&colorA=222222&colorB=CB3837" alt="npm version"></a>
-  <a href="https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-keep-E05735?style=flat&colorA=222222" alt="Changelog"></a>
-  <a href="https://github.com/can1357/oh-my-pi/actions"><img src="https://img.shields.io/github/actions/workflow/status/can1357/oh-my-pi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
-  <a href="https://github.com/can1357/oh-my-pi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/can1357/oh-my-pi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
+  <a href="https://github.com/LLMpsycho/oh-my-pi/blob/main/packages/coding-agent/CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-keep-E05735?style=flat&colorA=222222" alt="Changelog"></a>
+  <a href="https://github.com/LLMpsycho/oh-my-pi/actions"><img src="https://img.shields.io/github/actions/workflow/status/LLMpsycho/oh-my-pi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
+  <a href="https://github.com/LLMpsycho/oh-my-pi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/LLMpsycho/oh-my-pi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&colorA=222222&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-DEA584?style=flat&colorA=222222&logo=rust&logoColor=white" alt="Rust"></a>
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat&colorA=222222" alt="Bun"></a>
@@ -55,7 +55,7 @@ irm https://omp.sh/install.ps1 | iex
 **Pinned versions (mise)**
 
 ```sh
-mise use -g github:can1357/oh-my-pi
+mise use -g github:LLMpsycho/oh-my-pi
 ```
 
 macOS · Linux · Windows · bun ≥ 1.3.14
@@ -193,7 +193,7 @@ omp reads the working tree through git_overview, git_file_diff, and git_hunk, th
 
 Twelve internal schemes — `pr://`, `issue://`, `agent://`, `skill://`, `rule://`, and the rest — resolve transparently inside every FS-shaped tool the agent already calls. `read pr://1428` returns the same shape as `read src/foo.ts`. `search` walks a diff like a directory. `agent://<id>/findings.0.path` pulls a field out of a subagent's output by path.
 
-![omp TUI reading pr://can1357/oh-my-pi/1063 and then /diff/1, showing hunk headers, added lines, and a [MODIFIED] (+12 -0) summary.](https://omp.sh/captures/pr.webp)
+![omp TUI reading pr://LLMpsycho/oh-my-pi/1063 and then /diff/1, showing hunk headers, added lines, and a [MODIFIED] (+12 -0) summary.](https://omp.sh/captures/pr.webp)
 
 ### 18 · Conflict resolution, made easy.
 
@@ -466,7 +466,7 @@ Full reference: [omp.sh/docs/sdk](https://omp.sh/docs/sdk).
 
 Pick it up at **[omp.sh](https://omp.sh)**.
 
-omp is a fork of [Pi](https://github.com/badlogic/pi-mono) by [Mario Zechner](https://github.com/mariozechner), rewritten as a coding-first surface: sessions, subagents, slash commands, extensions — all TypeScript, all MIT, all on [GitHub](https://github.com/can1357/oh-my-pi). Shape it from config, hook it from outside, or read the source when you need to.
+omp is a fork of [Pi](https://github.com/badlogic/pi-mono) by [Mario Zechner](https://github.com/mariozechner), rewritten as a coding-first surface: sessions, subagents, slash commands, extensions — all TypeScript, all MIT, all on [GitHub](https://github.com/LLMpsycho/oh-my-pi). Shape it from config, hook it from outside, or read the source when you need to.
 
 ### Primitives
 
@@ -517,6 +517,115 @@ bun dev -- --version
 
 For architecture and contribution guidelines, see [packages/coding-agent/DEVELOPMENT.md](packages/coding-agent/DEVELOPMENT.md).
 
+
+### Bessi fork update workflow
+
+This fork is Bessi's source of truth for local OMP updates. The active runtime is built from this repository, not from the public installer, whenever the local memory patch must be preserved.
+
+The invariant is:
+
+```text
+LLMpsycho/oh-my-pi main = upstream OMP + Bessi memory patch
+```
+
+When upstream OMP publishes updates, merge the upstream changes into this fork, keep the memory patch in the merge result, build from the local checkout, and install the built binary locally.
+
+The memory patch must live as normal committed source in this fork, not as an external symlink or an untracked edit. It scopes Hindsight, Mnemopi, and local memory by a stable project identity so memory follows the project rather than whichever checkout path or transient git layout happens to be active.
+
+Do not symlink `/Users/besi/.local/bin/omp` to this source tree. Build a real binary, copy it into place, and keep a versioned rollback binary. The native addon must also be copied into the matching OMP native store.
+
+One-time remote setup for this fork:
+
+```sh
+git remote get-url upstream >/dev/null 2>&1 || git remote add upstream https://github.com/can1357/oh-my-pi
+```
+
+Patch setup for this fork:
+
+```sh
+git status --short
+# Stop unless the tree is clean, or only expected local context files are
+# present and have been handled or committed separately.
+git checkout main
+test -f packages/coding-agent/src/memory-project-identity.ts
+```
+
+If that file is missing, the memory patch is not present in the checked-out branch. Apply the patch as a normal commit before building or installing:
+
+```sh
+git cherry-pick b059b98be
+# Resolve conflicts, if any, while preserving the memory-project-key behavior.
+```
+
+The historical patch commit is:
+
+```text
+b059b98be feat(memory): scope project memory by stable repository identity
+```
+
+After the cherry-pick, confirm the patch surface is present before pushing the fork or building a binary:
+
+```sh
+test -f packages/coding-agent/src/memory-project-identity.ts
+grep -R "memory.projectKey" packages/coding-agent/src packages/coding-agent/test docs
+```
+
+Then run the patch-specific tests below. If the patch has already been committed to `main`, future upstream merges should keep it there; conflict resolution must preserve this behavior before the merged `main` is pushed to `origin`.
+
+Recommended update flow:
+
+```sh
+git fetch upstream --tags
+git checkout main
+git merge upstream/main
+# Resolve conflicts while preserving the memory patch.
+# Push the merged, still-patched main branch to origin.
+
+bun install
+bun --cwd=packages/natives run build
+bun --cwd=packages/coding-agent run build
+```
+
+Before installing, verify the memory patch is still present and covered by tests. At minimum, check the patch-specific memory tests plus the coding-agent type/check gate:
+
+```sh
+bun test \
+  packages/coding-agent/src/memory-project-identity.test.ts \
+  packages/coding-agent/test/hindsight-bank.test.ts \
+  packages/coding-agent/test/memory-tools.test.ts \
+  packages/coding-agent/test/mnemopi-bank-derivation.test.ts \
+  packages/coding-agent/test/autolearn-learn-local.test.ts
+bun --cwd=packages/coding-agent run check
+```
+
+Install from the built artifacts with a fresh binary inode:
+
+```sh
+VERSION="$(./packages/coding-agent/dist/omp --version | sed 's#^omp/##')"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+BACKUP_DIR="/Users/besi/.omp/backups/before-v$VERSION-$STAMP"
+mkdir -p "$BACKUP_DIR"
+cp /Users/besi/.local/bin/omp "$BACKUP_DIR/omp"
+mkdir -p "/Users/besi/.omp/natives/$VERSION"
+cp packages/natives/native/pi_natives.darwin-arm64.node "/Users/besi/.omp/natives/$VERSION/"
+cp packages/coding-agent/dist/omp "/Users/besi/.local/bin/omp-$VERSION-memory-project-key"
+chmod +x "/Users/besi/.local/bin/omp-$VERSION-memory-project-key"
+rm -f /Users/besi/.local/bin/omp
+cp packages/coding-agent/dist/omp /Users/besi/.local/bin/omp
+chmod +x /Users/besi/.local/bin/omp
+```
+
+After installing, verify the active binary and plugin state:
+
+```sh
+/Users/besi/.local/bin/omp --version
+omp update --check
+omp plugin doctor
+```
+
+If `omp plugin doctor` reports warnings, compare them with the previous backed-up binary before treating the update as the cause. The binary swap does not modify `~/.omp/plugins`, so pre-existing plugin warnings are out of scope for the memory-patch install unless the new binary changes validation behavior.
+
+Restart OMP sessions after installing so the new binary is loaded.
 ---
 
 ## Monorepo Packages
@@ -553,7 +662,7 @@ For architecture and contribution guidelines, see [packages/coding-agent/DEVELOP
 
 Issues are open to everyone. **Pull requests require a vouch** — PRs from
 unvouched or denounced authors are closed automatically. If you're not yet
-vouched, open a [Discussion](https://github.com/can1357/oh-my-pi/discussions)
+vouched, open a [Discussion](https://github.com/LLMpsycho/oh-my-pi/discussions)
 and ask a maintainer to `!vouch` you rather than opening a PR (which would be
 closed on sight). See **[CONTRIBUTING.md](CONTRIBUTING.md)** and
 [`.github/VOUCHED.td`](.github/VOUCHED.td) for the full policy.
@@ -570,8 +679,8 @@ MIT. See [LICENSE](LICENSE).
 _made for terminals that stay open_
 
 - [omp.sh](https://omp.sh)
-- [GitHub](https://github.com/can1357/oh-my-pi)
-- [Changelog](https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/CHANGELOG.md)
+- [GitHub](https://github.com/LLMpsycho/oh-my-pi)
+- [Changelog](https://github.com/LLMpsycho/oh-my-pi/blob/main/packages/coding-agent/CHANGELOG.md)
 - [npm](https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent)
 - [Discord](https://discord.gg/4NMW9cdXZa)
-- [MIT](https://github.com/can1357/oh-my-pi/blob/main/LICENSE)
+- [MIT](https://github.com/LLMpsycho/oh-my-pi/blob/main/LICENSE)

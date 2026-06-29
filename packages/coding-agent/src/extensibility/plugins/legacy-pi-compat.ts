@@ -729,6 +729,13 @@ function splitBarePackageSpecifier(specifier: string): BarePackageSpecifier | nu
 	return { name, subpath: rest.length > 0 ? rest.join("/") : null };
 }
 
+function isPluginSourceHelperSpecifier(specifier: string): boolean {
+	const parsed = splitBarePackageSpecifier(specifier);
+	if (!parsed) return false;
+	const packageBaseName = parsed.name.startsWith("@") ? parsed.name.split("/")[1] : parsed.name;
+	return packageBaseName?.startsWith("pi-") === true;
+}
+
 async function findNodePackageRoot(packageName: string, importerPath: string): Promise<string | null> {
 	let dir = path.dirname(importerPath);
 	while (true) {
@@ -880,10 +887,10 @@ function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Match source modules in an extension graph (relative imports and package
-// `imports` aliases such as `#src/*`). Bare third-party dependencies remain
-// native Bun resolutions.
-const EXTENSION_GRAPH_SPECIFIER_REGEX = /(?:from\s+|import\s+|import\s*\(\s*)["']((?:\.\.?\/|#)[^"']+)["']/g;
+// Match source modules in an extension graph: relative imports, package
+// `imports` aliases such as `#src/*`, and plugin-local Pi helper packages.
+// General third-party dependencies are deliberately excluded from graph hooks.
+const EXTENSION_GRAPH_SPECIFIER_REGEX = /(?:from\s+|import\s+|import\s*\(\s*)["']([^"']+)["']/g;
 
 // Extension entry realpaths that already have a load-time rewrite hook
 // installed. Each `Bun.plugin()` registration is process-global and permanent,
@@ -900,12 +907,12 @@ async function realpathOrSelf(p: string): Promise<string> {
 }
 
 /**
- * Walk the extension's relative-import graph starting at `entryRealPath`,
- * returning the realpath of every reachable source module. Only relative
- * specifiers (`./`, `../`) are followed — bare and absolute imports are left to
- * Bun's native resolver — so the set is exactly the extension's own source,
- * wherever it physically lives (a `../src` sibling, a symlinked sub-tree, …).
- * This mirrors the module set the old temp-dir mirror tracked, minus the copy.
+ * Walk the extension's source graph starting at `entryRealPath`, returning the
+ * realpath of every reachable source module. This includes relative imports,
+ * package `imports` aliases, and plugin-local Pi helper dependencies. Those
+ * helper files need the same host-compat import rewrites as the extension entry
+ * itself; otherwise legacy peers imported by a helper package can bypass the
+ * rewrite hook and fail validation.
  */
 async function collectExtensionModules(entryRealPath: string): Promise<Set<string>> {
 	const modules = new Set<string>();
@@ -929,7 +936,11 @@ async function collectExtensionModules(entryRealPath: string): Promise<Set<strin
 			try {
 				const resolved = specifier.startsWith("#")
 					? await resolvePackageImportSpecifier(specifier, file)
-					: await realpathOrSelf(Bun.resolveSync(specifier, dir));
+					: specifier.startsWith(".")
+						? await realpathOrSelf(Bun.resolveSync(specifier, dir))
+						: isPluginSourceHelperSpecifier(specifier)
+							? await resolveExtensionBareDependency(specifier, file)
+							: null;
 				if (resolved && !modules.has(resolved)) {
 					queue.push(resolved);
 				}

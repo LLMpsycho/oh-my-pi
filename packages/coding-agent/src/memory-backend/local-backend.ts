@@ -12,9 +12,10 @@ import type { MemoryBackend } from "./types";
  * Wraps the existing `memories/` module as a `MemoryBackend`.
  *
  * The rollout-summarisation pipeline (rollouts → SQLite → memory_summary.md) is
- * delegated unchanged. On top of it, `save()` persists `learn`-tool lessons to
- * `learned.md` (so `status()` reports `writable: true`); structured search is
- * still unavailable.
+ * delegated unchanged, while the project root is resolved from stable memory
+ * project identity instead of cwd/worktree path. On top of it, `save()` persists
+ * `learn`-tool lessons to `learned.md` (so `status()` reports `writable: true`);
+ * structured search is still unavailable.
  */
 export const localBackend: MemoryBackend = {
 	id: "local",
@@ -26,13 +27,18 @@ export const localBackend: MemoryBackend = {
 	},
 	async clear(agentDir, cwd, session) {
 		clearMemoryToolDeveloperInstructionsCache(session);
-		await clearMemoryData(agentDir, cwd);
+		await clearMemoryData(agentDir, cwd, session?.settings?.get("memory.projectKey"));
 	},
-	async enqueue(agentDir, cwd) {
-		enqueueMemoryConsolidation(agentDir, cwd);
+	async enqueue(agentDir, cwd, session) {
+		enqueueMemoryConsolidation(agentDir, cwd, undefined, session?.settings?.get("memory.projectKey"));
 	},
 	async save(context, input) {
-		return saveLearnedLesson(context.agentDir, context.cwd, input);
+		return saveLearnedLesson(
+			context.agentDir,
+			context.cwd,
+			input,
+			context.session?.settings?.get("memory.projectKey"),
+		);
 	},
 	async status() {
 		return {

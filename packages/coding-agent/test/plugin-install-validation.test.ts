@@ -105,6 +105,75 @@ describe("PluginManager.install load validation", () => {
 		expect(await Bun.file(path.join(tmpRoot, "omp-plugins.lock.json")).exists()).toBe(false);
 	});
 
+	test("validates installed extension dependencies that import legacy Pi TUI peers", async () => {
+		const spawn = Bun.spawn;
+		vi.spyOn(Bun, "spawn").mockImplementation(command => {
+			expect(command).toEqual(["bun", "install", "@aliou/pi-guardrails@0.14.0"]);
+
+			const prepare = (async () => {
+				await Bun.write(
+					pluginsPkgJson,
+					JSON.stringify(
+						{ name: "omp-plugins", private: true, dependencies: { "@aliou/pi-guardrails": "0.14.0" } },
+						null,
+						2,
+					),
+				);
+				const pluginDir = path.join(pluginsNodeModules, "@aliou/pi-guardrails");
+				await fs.mkdir(path.join(pluginDir, "dist"), { recursive: true });
+				await Bun.write(
+					path.join(pluginDir, "package.json"),
+					JSON.stringify(
+						{
+							name: "@aliou/pi-guardrails",
+							version: "0.14.0",
+							omp: { extensions: ["./dist/extension.ts"] },
+						},
+						null,
+						2,
+					),
+				);
+				await Bun.write(
+					path.join(pluginDir, "dist", "extension.ts"),
+					'import { renderSettings } from "@aliou/pi-utils-settings";\nrenderSettings();\nexport default function(pi) { pi.registerCommand("guardrails", { handler: async () => {} }); }\n',
+				);
+
+				const settingsDir = path.join(pluginsNodeModules, "@aliou/pi-utils-settings");
+				await fs.mkdir(path.join(settingsDir, "src", "components"), { recursive: true });
+				await Bun.write(
+					path.join(settingsDir, "package.json"),
+					JSON.stringify(
+						{
+							name: "@aliou/pi-utils-settings",
+							version: "0.14.0",
+							exports: { ".": "./src/index.ts" },
+						},
+						null,
+						2,
+					),
+				);
+				await Bun.write(
+					path.join(settingsDir, "src", "index.ts"),
+					'export { renderSettings } from "./components/array-editor";\n',
+				);
+				await Bun.write(
+					path.join(settingsDir, "src", "components", "array-editor.ts"),
+					'import { Text } from "@earendil-works/pi-tui";\nexport function renderSettings() { return Text; }\n',
+				);
+			})();
+
+			const subprocess = spawn(["true"], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+			Object.defineProperty(subprocess, "exited", { value: prepare.then(() => 0) });
+			return subprocess;
+		});
+
+		const installed = await new PluginManager(tmpRoot).install("@aliou/pi-guardrails@0.14.0");
+		expect(installed).toMatchObject({
+			name: "@aliou/pi-guardrails",
+			version: "0.14.0",
+		});
+	});
+
 	test("restores the previous package tree when reinstall validation fails", async () => {
 		await Bun.write(
 			pluginsPkgJson,

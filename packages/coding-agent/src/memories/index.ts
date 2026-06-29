@@ -11,6 +11,7 @@ import type { ModelRegistry } from "../config/model-registry";
 import { getModelMatchPreferences, resolveModelRoleValue } from "../config/model-resolver";
 import type { Settings } from "../config/settings";
 import type { MemoryBackendSaveInput, MemoryBackendSaveResult } from "../memory-backend/types";
+import { resolveMemoryProjectIdentity } from "../memory-project-identity";
 import consolidationTemplate from "../prompts/memories/consolidation.md" with { type: "text" };
 import consolidationSystemTemplate from "../prompts/memories/consolidation_system.md" with { type: "text" };
 import readPathTemplate from "../prompts/memories/read-path.md" with { type: "text" };
@@ -169,7 +170,7 @@ const memoryToolDeveloperInstructionsBySession = new WeakMap<
 const memoryToolDeveloperInstructionsByRoot = new Map<string, MemoryToolDeveloperInstructionsSnapshot | undefined>();
 
 function getMemoryInstructionRoot(agentDir: string, settings: Settings): string {
-	return getMemoryRoot(agentDir, settings.getCwd());
+	return getMemoryRoot(agentDir, settings.getCwd(), settings.get("memory.projectKey"));
 }
 
 function getMemoryInstructionSessionFile(session: MemoryInstructionSession): string | undefined {
@@ -293,20 +294,25 @@ export async function buildMemoryToolDeveloperInstructions(
 /**
  * Clear all persisted memory state and generated artifacts.
  */
-export async function clearMemoryData(agentDir: string, cwd: string): Promise<void> {
+export async function clearMemoryData(agentDir: string, cwd: string, projectKey?: string): Promise<void> {
 	const db = openMemoryDb(getAgentDbPath(agentDir));
 	try {
 		clearMemoryDataInDb(db);
 	} finally {
 		closeMemoryDb(db);
 	}
-	await fs.rm(getMemoryRoot(agentDir, cwd), { recursive: true, force: true });
+	await fs.rm(getMemoryRoot(agentDir, cwd, projectKey), { recursive: true, force: true });
 }
 
 /**
  * Force-enqueue global consolidation maintenance work.
  */
-export function enqueueMemoryConsolidation(agentDir: string, cwd: string, sourceUpdatedAt = unixNow()): void {
+export function enqueueMemoryConsolidation(
+	agentDir: string,
+	cwd: string,
+	sourceUpdatedAt = unixNow(),
+	_projectKey?: string,
+): void {
 	const db = openMemoryDb(getAgentDbPath(agentDir));
 	try {
 		enqueueGlobalWatermark(db, sourceUpdatedAt, cwd, { forceDirtyWhenNotAdvanced: true });
@@ -339,7 +345,11 @@ async function runPhase1(options: {
 	const db = openMemoryDb(getAgentDbPath(agentDir));
 	const nowSec = unixNow();
 	const workerId = `memory-${process.pid}`;
-	const memoryRoot = getMemoryRoot(agentDir, session.sessionManager.getCwd());
+	const memoryRoot = getMemoryRoot(
+		agentDir,
+		session.sessionManager.getCwd(),
+		options.settings.get("memory.projectKey"),
+	);
 	const currentThreadId = session.sessionManager.getSessionId();
 
 	try {
@@ -472,7 +482,7 @@ async function runPhase2(options: {
 	const db = openMemoryDb(getAgentDbPath(agentDir));
 	const nowSec = unixNow();
 	const workerId = `memory-${process.pid}`;
-	const memoryRoot = getMemoryRoot(agentDir, cwd);
+	const memoryRoot = getMemoryRoot(agentDir, cwd, options.settings.get("memory.projectKey"));
 
 	try {
 		const claimResult = tryClaimGlobalPhase2Job(db, {
@@ -1248,8 +1258,8 @@ function loadMemoryConfig(settings: Settings): MemoryRuntimeConfig {
 	};
 }
 
-export function getMemoryRoot(agentDir: string, cwd: string): string {
-	return path.join(getMemoriesDir(agentDir), encodeProjectPath(cwd));
+export function getMemoryRoot(agentDir: string, cwd: string, projectKey?: string): string {
+	return path.join(getMemoriesDir(agentDir), `--${resolveMemoryProjectIdentity(cwd, projectKey).segment}--`);
 }
 
 /**
@@ -1310,6 +1320,7 @@ export async function saveLearnedLesson(
 	agentDir: string,
 	cwd: string,
 	input: MemoryBackendSaveInput,
+	projectKey?: string,
 ): Promise<MemoryBackendSaveResult> {
 	const content = normalizeLearnedText(input.content, MAX_LEARNED_CONTENT_CHARS);
 	if (!content) {
@@ -1317,7 +1328,7 @@ export async function saveLearnedLesson(
 	}
 	const context = input.context ? normalizeLearnedText(input.context, MAX_LEARNED_CONTEXT_CHARS) : "";
 	const line = context ? `- ${content} _(context: ${context})_` : `- ${content}`;
-	const filePath = path.join(getMemoryRoot(agentDir, cwd), LEARNED_LESSONS_FILE);
+	const filePath = path.join(getMemoryRoot(agentDir, cwd, projectKey), LEARNED_LESSONS_FILE);
 
 	// Serialize the read-modify-write per file: parallel `learn` calls (sibling
 	// subagents, or two shared tool calls in one turn) share the project memory
@@ -1369,10 +1380,6 @@ async function readLearnedLessons(memoryRoot: string): Promise<string> {
 		.split("\n")
 		.map(line => redactSecrets(neutralizeInjection(line)))
 		.join("\n");
-}
-
-function encodeProjectPath(cwd: string): string {
-	return `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 }
 
 function unixNow(): number {

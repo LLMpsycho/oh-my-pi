@@ -2295,6 +2295,18 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"memory.projectKey": {
+		type: "string",
+		default: undefined,
+		ui: {
+			tab: "memory",
+			group: "General",
+			label: "Memory Project Key",
+			description:
+				"Optional stable project identity shared across worktrees, e.g. github.com/org/repo. Falls back to git remote, git common-dir, then cwd.",
+		},
+	},
+
 	// Auto-Learn (experimental): post-stop nudge to capture lessons to memory
 	// and mint/enhance isolated managed skills under ~/.omp/agent/managed-skills.
 	// Master flag is default-off → zero footprint; sub-flags gate behaviour.
@@ -2356,7 +2368,7 @@ export const SETTINGS_SCHEMA = {
 			group: "Mnemopi",
 			label: "Mnemopi Scoping",
 			description:
-				"global = one shared bank; per-project = isolated bank per cwd; per-project-tagged = project-local writes plus global recall visibility",
+				"global = one shared bank; per-project = isolated bank per memory project identity; per-project-tagged = project-local writes plus global recall visibility",
 			options: [
 				{
 					value: "global",
@@ -2366,7 +2378,7 @@ export const SETTINGS_SCHEMA = {
 				{
 					value: "per-project",
 					label: "Per project",
-					description: "Project-local Mnemopi bank per cwd basename",
+					description: "Project-local Mnemopi bank per memory project identity",
 				},
 				{
 					value: "per-project-tagged",
@@ -2602,7 +2614,7 @@ export const SETTINGS_SCHEMA = {
 			group: "Hindsight",
 			label: "Hindsight Scoping",
 			description:
-				"global = one shared bank; per-project = isolated bank per cwd; per-project-tagged = shared bank with project tags so global + project memories merge on recall",
+				"global = one shared bank; per-project = isolated bank per memory project identity; per-project-tagged = shared bank with project tags so global + project memories merge on recall",
 			options: [
 				{
 					value: "global",
@@ -2612,13 +2624,13 @@ export const SETTINGS_SCHEMA = {
 				{
 					value: "per-project",
 					label: "Per project",
-					description: "Isolated bank per cwd basename — projects cannot see each other's memories",
+					description: "Isolated bank per memory project identity — projects cannot see each other's memories",
 				},
 				{
 					value: "per-project-tagged",
 					label: "Per project (tagged)",
 					description:
-						"Shared bank, retains tagged with project:<cwd>. Recall surfaces project + untagged global memories together",
+						"Shared bank, retains tagged with project:<key>. Recall surfaces project + untagged global memories together",
 				},
 			],
 			condition: "hindsightActive",

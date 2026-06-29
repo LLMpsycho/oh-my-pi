@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type { MnemopiOptions } from "@oh-my-pi/pi-mnemopi";
 import { getMemoriesDir, logger } from "@oh-my-pi/pi-utils";
 import type { Settings } from "../config/settings";
+import { resolveMemoryProjectIdentity } from "../memory-project-identity";
 
 export type MnemopiLlmMode = "none" | "smol" | "remote";
 
@@ -45,7 +46,7 @@ export function loadMnemopiConfig(settings: Settings, agentDir: string): Mnemopi
 	const cwd = settings.getCwd();
 	const scoping = settings.get("mnemopi.scoping");
 	const dbPath = configuredDbPath ?? path.join(getMemoriesDir(agentDir), "mnemopi", "mnemopi.db");
-	const scope = computeMnemopiBankScope(settings.get("mnemopi.bank"), cwd, scoping);
+	const scope = computeMnemopiBankScope(settings.get("mnemopi.bank"), cwd, scoping, settings.get("memory.projectKey"));
 	const recallBanks =
 		scoping === "global" ? scope.recallBanks : extendRecallWithLegacyBanks(scope.recallBanks, dbPath, cwd);
 	const llmMode = settings.get("mnemopi.llmMode");
@@ -120,15 +121,16 @@ export interface MnemopiBankScope {
  *
  * Mnemopi has no tag-filtered recall, so `per-project-tagged` maps to a
  * project-local write bank plus a shared recall-visible bank. The project
- * bank is derived purely from {@link cwd} — see {@link projectBank} for the
- * stability contract.
+ * bank comes from the canonical memory project identity, falling back to cwd
+ * for non-repository directories.
  */
 export function computeMnemopiBankScope(
 	configured: string | undefined,
 	cwd: string,
 	scoping: MnemopiScoping,
+	projectKey?: string,
 ): MnemopiBankScope {
-	const project = projectBank(configured, cwd);
+	const project = projectBank(configured, cwd, projectKey);
 	const globalBank = sharedBank(configured);
 	switch (scoping) {
 		case "global":
@@ -163,24 +165,20 @@ function sharedBank(configured: string | undefined): string {
 }
 
 /**
- * Derive the per-project bank id from `cwd` alone.
+ * Derive the per-project bank id from the canonical memory project identity.
  *
- * Earlier versions resolved the enclosing git root before hashing, which
- * made the bank id unstable: removing or adding a `.git` anywhere above the
- * cwd repointed the same conversation directory to a different bank and
- * fragmented memories (#2412). The git lookup is gone here; the rescue path
- * for already-fragmented installs lives in {@link extendRecallWithLegacyBanks}.
+ * Git remotes give sibling worktrees one bank. The cwd fallback keeps non-git
+ * directories stable by including the absolute cwd hash. The rescue path for
+ * already-fragmented installs lives in {@link extendRecallWithLegacyBanks}.
  */
-function projectBank(configured: string | undefined, cwd: string): string {
-	const projectRoot = path.resolve(cwd || ".");
-	const project = projectBankSegment(projectRoot);
+function projectBank(configured: string | undefined, cwd: string, projectKey?: string): string {
+	const identity = resolveMemoryProjectIdentity(cwd, projectKey);
+	const project =
+		identity.source === "cwd"
+			? limitBankName(`${identity.segment}-${Bun.hash(path.resolve(cwd)).toString(36)}`)
+			: identity.segment;
 	const base = sanitizeBankName(configured);
 	return limitBankName(base ? `${base}-${project}` : project);
-}
-
-function projectBankSegment(projectRoot: string): string {
-	const project = sanitizeBankName(path.basename(projectRoot)) ?? "default";
-	return limitBankName(`${project}-${Bun.hash(projectRoot).toString(36)}`);
 }
 
 /**

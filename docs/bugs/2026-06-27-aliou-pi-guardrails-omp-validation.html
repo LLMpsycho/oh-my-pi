@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>@aliou/pi-guardrails fails OMP extension validation</title>
+</head>
+<body>
+  <article>
+    <h1>@aliou/pi-guardrails fails OMP extension validation</h1>
+
+    <section>
+      <h2>Summary</h2>
+      <p>
+        Installing <code>@aliou/pi-guardrails</code> into OMP fails during extension validation.
+        The package is an upstream Pi extension and its settings UI imports the upstream Pi TUI runtime
+        package <code>@earendil-works/pi-tui</code>, which is not present in the OMP plugin workspace.
+      </p>
+    </section>
+
+    <section>
+      <h2>Date observed</h2>
+      <p>2026-06-27</p>
+    </section>
+
+    <section>
+      <h2>Affected package</h2>
+      <dl>
+        <dt>Package</dt>
+        <dd><code>@aliou/pi-guardrails</code></dd>
+        <dt>Attempted versions</dt>
+        <dd><code>latest</code> and <code>0.14.0</code></dd>
+        <dt>Reason for pinning <code>0.14.0</code></dt>
+        <dd>
+          The latest release was inside the configured npm minimum-release-age quarantine window.
+          Version <code>0.14.0</code> was the newest release-age-eligible version found during the install attempt.
+        </dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>Reproduction</h2>
+      <pre><code>omp plugin install @aliou/pi-guardrails
+omp plugin install @aliou/pi-guardrails@0.14.0</code></pre>
+    </section>
+
+    <section>
+      <h2>Observed failure</h2>
+      <pre><code>Plugin @aliou/pi-guardrails extension validation failed:
+/Users/besi/.omp/plugins/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts: ResolveMessage: Cannot find module '@earendil-works/pi-tui' from '/Users/besi/.omp/plugins/node_modules/@aliou/pi-utils-settings/src/components/array-editor.ts'
+/Users/besi/.omp/plugins/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts: 10 errors building "/Users/besi/.omp/plugins/node_modules/@aliou/pi-guardrails/package.json"
+/Users/besi/.omp/plugins/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts: 10 errors building "/Users/besi/.omp/plugins/node_modules/@aliou/pi-guardrails/package.json"</code></pre>
+    </section>
+
+    <section>
+      <h2>Problematic extension entries</h2>
+      <ul>
+        <li><code>extensions/path-access/index.ts</code></li>
+        <li><code>extensions/guardrails/index.ts</code></li>
+        <li><code>extensions/permission-gate/index.ts</code></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Root cause</h2>
+      <p>
+        <code>@aliou/pi-guardrails</code> depends on <code>@aliou/pi-utils-settings</code>.
+        During OMP extension validation, <code>@aliou/pi-utils-settings/src/components/array-editor.ts</code>
+        imports <code>@earendil-works/pi-tui</code>. That package is an upstream Pi runtime/UI peer, not an OMP-native plugin dependency.
+      </p>
+      <p>
+        Installing <code>@earendil-works/pi-tui</code> as an OMP plugin just to satisfy validation is not a safe fix.
+        It would mix upstream Pi runtime packages into the OMP plugin workspace and could mask an API compatibility problem.
+      </p>
+    </section>
+
+    <section>
+      <h2>Impact</h2>
+      <ul>
+        <li><code>@aliou/pi-guardrails</code> is not installed.</li>
+        <li>OMP rolls back the failed install rather than leaving a partial package installed.</li>
+        <li>The failure does not affect already-installed healthy plugins.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Current plugin health after rollback</h2>
+      <p>
+        After the failed install attempts, <code>omp plugin doctor</code> reported <code>7 ok</code>,
+        <code>3 warnings</code>, and <code>0 errors</code>. The warnings were for pre-existing package entries
+        without <code>omp</code> or <code>pi</code> manifests: <code>compound-engineering</code>, <code>context7</code>, and <code>superpowers</code>.
+      </p>
+      <p>
+        Healthy extension/plugin entries included <code>omp-discord-presence</code>,
+        <code>pi-continuous-learning</code>, <code>pi-generative-ui</code>, and <code>pi-lens</code>.
+      </p>
+    </section>
+
+    <section>
+      <h2>Resolution</h2>
+      <p>
+        Fixed in OMP by extending the legacy Pi extension validation graph to include plugin-local
+        Pi helper packages such as <code>@aliou/pi-utils-settings</code>. Their source files now receive
+        the same legacy Pi import rewrites as the extension entry, so imports like
+        <code>@earendil-works/pi-tui</code> resolve through OMP's compatibility shim during validation.
+      </p>
+      <p>
+        The graph expansion is intentionally limited to plugin-local helper packages whose package
+        basename starts with <code>pi-</code>, so general third-party dependencies are not pulled into
+        the rewrite hook.
+      </p>
+    </section>
+
+    <section>
+      <h2>Post-fix verification</h2>
+      <ol>
+        <li>
+          Keep the install-level regression test in
+          <code>packages/coding-agent/test/plugin-install-validation.test.ts</code> passing. It exercises
+          <code>PluginManager.install("@aliou/pi-guardrails@0.14.0")</code> through extension validation.
+        </li>
+        <li>
+          Before installing the real plugin into a persistent OMP home, run a sandbox install with the patched loader
+          and confirm <code>omp plugin doctor</code> reports no new errors.
+        </li>
+        <li>
+          Do not force-install upstream Pi runtime peers into OMP. The compatibility loader should own the
+          <code>@earendil-works/pi-tui</code> remapping path.
+        </li>
+      </ol>
+    </section>
+  </article>
+</body>
+</html>
