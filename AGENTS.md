@@ -8,17 +8,32 @@ This repo contains multiple packages, but **`packages/coding-agent/`** is the pr
 
 ### Package Structure
 
-| Package                 | Description                                          |
-| ----------------------- | ---------------------------------------------------- |
-| `packages/ai`           | Multi-provider LLM client with streaming support     |
-| `packages/catalog`      | Model catalog: bundled models.json, provider descriptors, model identity/classification |
-| `packages/agent`        | Agent runtime with tool calling and state management |
-| `packages/coding-agent` | Main CLI application (primary focus)                 |
-| `packages/tui`          | Terminal UI library with differential rendering      |
-| `packages/natives`      | Bindings for native text/image/grep operations       |
-| `packages/stats`        | Local observability dashboard (`omp stats`)          |
-| `packages/utils`        | Shared utilities (logger, streams, temp files)       |
-| `crates/pi-natives`     | Rust crate for performance-critical text/grep ops    |
+| Package                           | Description                                                    |
+| --------------------------------- | -------------------------------------------------------------- |
+| `packages/coding-agent`           | Main CLI application (`omp`) — primary focus                   |
+| `packages/ai`                     | Multi-provider LLM client with streaming support               |
+| `packages/agent`                  | Agent runtime with tool calling and state management            |
+| `packages/catalog`                | Model catalog: bundled models.json, provider descriptors       |
+| `packages/tui`                    | Terminal UI library with differential rendering                |
+| `packages/utils`                  | Shared utilities (logger, streams, temp files)                 |
+| `packages/natives`                | NAPI-RS bindings for native text/image/grep operations         |
+| `packages/stats`                  | Local observability dashboard (`omp stats`)                    |
+| `packages/mnemopi`                | Local SQLite memory engine with CLI + MCP server               |
+| `packages/hashline`               | Compact line-anchored patch language                           |
+| `packages/snapcompact`            | Bitmap-frame context compression for vision LLMs               |
+| `packages/collab-web`             | Collaborative web frontend (SolidJS + Vite)                    |
+| `packages/wire`                   | Wire protocol/encoding for collab live sessions                |
+| `packages/swarm-extension`        | Multi-agent swarm execution extension                          |
+| `packages/terminal-bench`         | Terminal performance benchmarking with tb2 runner              |
+| `packages/typescript-edit-benchmark` | TypeScript edit operations benchmark suite                 |
+| `python/robomp`                   | Self-hosted GitHub triage-and-fix bot (FastAPI + Docker)       |
+| `python/omp-rpc`                  | RPC protocol for Python ↔ CLI communication                    |
+| `crates/pi-natives`               | Rust NAPI crate for perf-critical text/grep/pty ops            |
+| `crates/pi-ast`                   | Rust AST parsing with tree-sitter (multi-language)             |
+| `crates/pi-iso`                   | Rust filesystem features (reflink, overlay, APFS, ZFS)         |
+| `crates/pi-shell`                 | Rust shell runtime (process, FD, minimizer)                    |
+| `crates/pi-uu-grep`               | Rust grep implementation (rg wrapper)                          |
+| `crates/vendor/*`                 | Vendored uutils coreutils (ls, sort, find, cat, etc.)          |
 
 **Catalog import convention**: code in this repo imports catalog *values* (bundled models, model-thinking helpers, identity, descriptors, model manager/cache) from `@oh-my-pi/pi-catalog/<module>` — never via `@oh-my-pi/pi-ai`. The pi-ai barrel re-exports only the model/effort *types* its own signatures use (`Model`, `Api`, `ThinkingConfig`, `Effort`, …); type-only imports of those from `@oh-my-pi/pi-ai` are fine.
 
