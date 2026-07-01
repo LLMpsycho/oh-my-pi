@@ -1229,7 +1229,6 @@ async function resolveMemoryModel(options: {
 		const resolved = resolveModelRoleValue(requestedModel, modelRegistry.getAll(), {
 			settings: session.settings,
 			matchPreferences: getModelMatchPreferences(session.settings),
-			modelRegistry,
 		});
 		if (resolved.model) return resolved.model;
 	}
