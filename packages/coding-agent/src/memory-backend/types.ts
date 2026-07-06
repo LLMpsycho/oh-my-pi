@@ -74,6 +74,7 @@ export interface MemoryBackendOperationContext {
 	agentDir: string;
 	cwd: string;
 	session?: AgentSession;
+	projectKey?: string | null;
 }
 
 export interface MemoryRuntimeContext {

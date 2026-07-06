@@ -102,6 +102,35 @@ describe("computeMnemopiBankScope (#2412)", () => {
 	});
 });
 
+it("uses an explicit memory project key for the project bank", () => {
+	const scope = computeMnemopiBankScope("team", "/work/anything", "per-project", "GitHub.com/Org/Repo.git");
+	expect(scope.bank).toBe("team-github-com-org-repo");
+	expect(scope.retainBank).toBe("team-github-com-org-repo");
+	expect(scope.recallBanks).toEqual(["team-github-com-org-repo"]);
+});
+
+it("uses the git remote identity for sibling worktree banks", async () => {
+	const baseDir = await TempDir.create("@mnemopi-remote-bank-");
+	try {
+		const main = baseDir.join("repo-main");
+		const linked = baseDir.join("repo-feature");
+		const mainGit = path.join(main, ".git");
+		const linkedGitDir = path.join(mainGit, "worktrees", "repo-feature");
+		await fs.mkdir(linkedGitDir, { recursive: true });
+		await fs.mkdir(linked, { recursive: true });
+		await fs.writeFile(path.join(mainGit, "config"), `[remote "origin"]\n\turl = git@github.com:Org/Repo.git\n`);
+		await fs.writeFile(path.join(linked, ".git"), `gitdir: ${linkedGitDir}\n`);
+		await fs.writeFile(path.join(linkedGitDir, "commondir"), "../..\n");
+
+		const mainScope = computeMnemopiBankScope(undefined, main, "per-project");
+		const linkedScope = computeMnemopiBankScope(undefined, linked, "per-project");
+		expect(mainScope.bank).toBe("github-com-org-repo");
+		expect(linkedScope.bank).toBe(mainScope.bank);
+	} finally {
+		await baseDir.remove();
+	}
+});
+
 describe("extendRecallWithLegacyBanks (#2412)", () => {
 	it("adds a sibling bank only when all working_memory rows tag the active cwd", () => {
 		const activeCwd = path.join(rootDir.path(), "projects", "myrepo");

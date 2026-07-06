@@ -291,8 +291,12 @@ describe("learn tool (local backend)", () => {
 		await removeWithRetries(tmp);
 	});
 
-	function localSession(): ToolSession {
-		const settings = Settings.isolated({ "autolearn.enabled": true, "memory.backend": "local" });
+	function localSession(projectKey?: string): ToolSession {
+		const settings = Settings.isolated({
+			"autolearn.enabled": true,
+			"memory.backend": "local",
+			"memory.projectKey": projectKey,
+		});
 		spyOn(settings, "getAgentDir").mockReturnValue(agentDir);
 		spyOn(settings, "getCwd").mockReturnValue(projCwd);
 		return {
@@ -316,6 +320,14 @@ describe("learn tool (local backend)", () => {
 	it("execute writes the lesson to learned.md", async () => {
 		await new LearnTool(localSession()).execute("1", { memory: "A local tool lesson" });
 		expect(await Bun.file(learnedFile).text()).toContain("- A local tool lesson");
+	});
+
+	it("execute honors an explicit memory project key for local lessons", async () => {
+		const projectKey = "github.com/Org/Repo.git";
+		await new LearnTool(localSession(projectKey)).execute("project-key", { memory: "Project-keyed local lesson" });
+		const keyedFile = path.join(getMemoryRoot(agentDir, projCwd, projectKey), "learned.md");
+		expect(await Bun.file(keyedFile).text()).toContain("- Project-keyed local lesson");
+		expect(await Bun.file(learnedFile).exists()).toBe(false);
 	});
 
 	it("execute throws when the lesson is empty after sanitization", async () => {
