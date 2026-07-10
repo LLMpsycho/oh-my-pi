@@ -177,6 +177,46 @@ Other harnesses bolt on gh_issue_view, gh_pr_view, gh_search — each with its o
 
 The agent remembers your codebase between sessions. It writes facts mid-run with retain, pulls them back with recall, and compresses each session into a mental model that loads on the first turn of the next one. Project-scoped by default, so what it learns about this repo stays with this repo.
 
+#### Bessi shared Hindsight deployment
+
+Bessi's local OMP config uses a shared Hindsight backend on the Hetzner VPS instead of the old loopback service:
+
+```yaml
+memory:
+  backend: hindsight
+
+hindsight:
+  apiUrl: http://100.97.188.30:9077
+```
+
+On a new machine, put that block in `~/.omp/agent/config.yml`. The client machine does not need the VPS Codex auth file; `/home/hindsight/.codex/auth.json` is server-side only.
+
+Before those curl checks work on a new machine, join the same Tailscale tailnet:
+
+```sh
+# Install Tailscale for the new machine's OS, then:
+tailscale up
+```
+
+Log in with `besibes@gmail.com`, confirm `tailscale status` shows `hindsight-vps`, then start or restart OMP so it reads `~/.omp/agent/config.yml`.
+
+The VPS service runs as the `hindsight` system user under `hindsight.service`, with PostgreSQL in the `hindsight-postgres` Docker container. Runtime secrets live in `/etc/hindsight/hindsight.env` and `/home/hindsight/.codex/auth.json`; never print or commit those values.
+
+The service is intentionally Tailscale-only. It binds to `100.97.188.30:9077`, the UFW rule allows `9077/tcp` only on `tailscale0`, and the public VPS address `65.108.247.127:9077` should time out. From a Tailscale-connected machine, verify:
+
+```sh
+curl -sS -m 10 -o /tmp/vps-hindsight-banks.json -w '%{http_code} %{time_total}\n' http://100.97.188.30:9077/v1/default/banks
+curl -sS -m 10 -o /tmp/vps-hindsight-memory.json -w '%{http_code} %{time_total}\n' 'http://100.97.188.30:9077/v1/default/banks/omp/memories/list?limit=1'
+```
+
+Public exposure check:
+
+```sh
+curl -sS -m 5 -o /dev/null -w '%{http_code} %{time_total}\n' http://65.108.247.127:9077/v1/default/banks
+```
+
+Expected result: Tailscale returns `200`; public access times out or otherwise fails. If access must be limited to one specific device rather than every device in the `besibes@gmail.com` tailnet, enforce that with a Tailscale ACL.
+
 ### 14 · ACP: editor-drivable agent
 
 Run omp inside Zed and you get the same agent you drive from the terminal — reading the buffer you're actually looking at, writing through the editor's save path, spawning shells in the editor's terminal. Destructive tools pause for a permission prompt you can answer once and forget. No bridge, no plugin, no second brain to keep in sync.
@@ -281,6 +321,31 @@ Setting-gated, off by default: `github`, `inspect_image`, `tts`, `checkpoint`, `
 Roles route work by intent. `default` for normal turns. `smol` for cheap subagent fan-out. `slow` for deep reasoning. `plan` for plan mode. `commit` for changelogs. Override at launch with `--smol`, `--slow`, or `--plan`; cycle through the configured models for the active role with `Ctrl+P`. Swap the active model mid-session with the `/model` slash command.
 
 Auth tags below: `oauth` signs in with your provider account, `plan` routes through a coding-plan subscription, `local` runs against a local server with the key optional.
+
+### Known Codex GPT-5.5 limitation/workaround
+
+Bessi's local OMP config intentionally does **not** run `openai-codex/gpt-5.5` sessions up to the advertised 1M context window right now. The practical Codex subscription route has shown `context_length_exceeded` failures around the 252k-266k range before compaction reliably protects the next request, so the local override treats GPT-5.5 as a ~272k-context model and compacts below that.
+
+In `~/.omp/agent/models.yml`:
+
+```yaml
+providers:
+  openai-codex:
+    modelOverrides:
+      gpt-5.5:
+        contextWindow: 272000
+```
+
+In `~/.omp/agent/config.yml`:
+
+```yaml
+compaction:
+  strategy: context-full
+  thresholdTokens: 240000
+  enabled: true
+```
+
+This is a conservative local workaround, not a blanket claim about the model's theoretical capability. It keeps the TUI denominator honest for current OMP behavior while preserving a safety margin before the observed failure band. Revisit the override when upstream Codex compaction behavior is reliable. Relevant upstream context: [#4823](https://github.com/can1357/oh-my-pi/issues/4823) tracks the current open overflow/compaction failure, [#3747](https://github.com/can1357/oh-my-pi/issues/3747) is the earlier closed recovery bug, and [#1993](https://github.com/can1357/oh-my-pi/issues/1993) covers the 272K-vs-1M metadata dispute.
 
 ### Frontier APIs
 
