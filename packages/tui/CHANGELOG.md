@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `FuzzyText`, a prepared fuzzy-match handle that builds the search index once and matches many queries against it — for callers whose corpus exceeds the internal index cache's admission size (e.g. session/transcript search).
+
+### Fixed
+
+- Fixed the mid-prompt `/` autocomplete popup lingering until Esc on tokens that are neither a path nor skill-shaped. Skill suggestions previously stayed alive through fuzzy subsequence matches against long skill descriptions, so nearly any prose token kept the popup hovering; matching is now gated to the `skill:` namespace (bare `/`, `s`, `sk`, …), explicit `skill:` queries (fuzzy search retained), and bare skill-name prefixes (`/hum` → `skill:humanizer`). Everything else falls through to path completion or dismisses the popup, and the Tab/Enter staleness guard shares the same gate so a stale popup can no longer rewrite tokens like `/scan` into `/skill:…`.
+
+## [16.4.1] - 2026-07-10
+
+### Added
+
+- Added full 2-D layout support for display LaTeX math (fractions, matrices, radicals, limits), modeled on the layout approach of [txm](https://github.com/thatmagicalcat/txm) (Terminal TeX Math) by [@thatmagicalcat](https://github.com/thatmagicalcat)
+- Added support for `\left`, `\right`, and `\middle` stretchy delimiters in display blocks
+- Added rendering for `cases`, `matrix`, `pmatrix`, `bmatrix`, and `vmatrix` environments
+- Added support for block-level scripts and big-operator limits (e.g., `\sum`, `\int\limits`)
+- Added cross-box styling for `\color`, `\textcolor`, and math font commands (e.g., `\mathbf`)
+
+### Changed
+
+- Improved row alignment and spacing for `align`, `gather`, and `array` environments
+- Updated matrix environments to render as baseline-aligned grids with stretched brackets
+
+## [16.4.0] - 2026-07-10
+
+### Fixed
+
+- Fixed terminal flickering during session resume, replacement, or resizing on terminals that do not support synchronized output.
+
 ## [16.3.14] - 2026-07-09
 
 ### Fixed
