@@ -27,6 +27,8 @@ export interface InternalUrlExpansionOptions {
 	noEscape?: boolean;
 	internalRouter?: InternalUrlResolver;
 	localOptions?: LocalProtocolOptions;
+	cwd?: string;
+	settings?: unknown;
 	ensureLocalParentDirs?: boolean;
 }
 
@@ -125,12 +127,16 @@ function matchSkillName(
 	return { skill: undefined, suffix: undefined };
 }
 
+function isSupportedInternalScheme(value: string): value is SupportedInternalScheme {
+	return SUPPORTED_INTERNAL_SCHEMES.some(candidate => candidate === value);
+}
+
 function extractScheme(url: string): SupportedInternalScheme | undefined {
 	const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(url);
 	if (!match) return undefined;
 	const scheme = match[1].toLowerCase();
-	if (!SUPPORTED_INTERNAL_SCHEMES.includes(scheme as SupportedInternalScheme)) return undefined;
-	return scheme as SupportedInternalScheme;
+	if (!isSupportedInternalScheme(scheme)) return undefined;
+	return scheme;
 }
 
 function unquoteToken(token: string): string {
@@ -175,6 +181,8 @@ async function resolveInternalUrlToPath(
 	internalRouter?: InternalUrlResolver,
 	localOptions?: LocalProtocolOptions,
 	ensureLocalParentDirs?: boolean,
+	cwd?: string,
+	settings?: unknown,
 ): Promise<string> {
 	const url = normalizeLocalScheme(rawUrl);
 	const scheme = extractScheme(url);
@@ -208,7 +216,7 @@ async function resolveInternalUrlToPath(
 
 	let resource: InternalResource;
 	try {
-		resource = await internalRouter.resolve(url, { pathOnly: true });
+		resource = await internalRouter.resolve(url, { cwd, settings, pathOnly: true });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		throw new ToolError(`Failed to resolve ${scheme}:// URL in bash command: ${url}\n${message}`);
@@ -268,6 +276,8 @@ export async function expandInternalUrls(command: string, options: InternalUrlEx
 				options.internalRouter,
 				options.localOptions,
 				options.ensureLocalParentDirs,
+				options.cwd,
+				options.settings,
 			);
 		} catch {
 			continue;

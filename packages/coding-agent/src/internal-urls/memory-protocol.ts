@@ -6,15 +6,15 @@ import { getMnemopiSessionState, type MnemopiScopedMemoryHit, type MnemopiSessio
 import { AgentRegistry } from "../registry/agent-registry";
 import { buildDirectoryResource } from "./filesystem-resource";
 import { validateRelativePath } from "./skill-protocol";
-import type { InternalResource, InternalUrl, ProtocolHandler, UrlCompletion } from "./types";
+import type { InternalResource, InternalUrl, ProtocolHandler, ResolveContext, UrlCompletion } from "./types";
 
 const DEFAULT_MEMORY_FILE = "memory_summary.md";
 const MEMORY_NAMESPACE = "root";
 
 /**
  * Snapshot of memory roots for every registered session, deduped.
- * Linked worktrees of the same repository resolve to the same memory project
- * root unless an explicit `memory.projectKey` overrides that identity.
+ * Contextful resolutions use the calling context's cwd and project key;
+ * contextless callers fall back to the live-session registry.
  */
 export function memoryRootsFromRegistry(): string[] {
 	const agentDir = getAgentDir();
@@ -26,6 +26,28 @@ export function memoryRootsFromRegistry(): string[] {
 		if (root && !roots.includes(root)) roots.push(root);
 	}
 	return roots;
+}
+
+interface MemoryContextSettings {
+	get(key: string): unknown;
+	getAgentDir(): unknown;
+}
+
+function isMemoryContextSettings(value: unknown): value is MemoryContextSettings {
+	if (!value || typeof value !== "object") return false;
+	if (!("get" in value) || typeof value.get !== "function") return false;
+	return "getAgentDir" in value && typeof value.getAgentDir === "function";
+}
+
+function memoryRootsForContext(context?: ResolveContext): string[] {
+	if (context?.cwd) {
+		const settings = isMemoryContextSettings(context.settings) ? context.settings : undefined;
+		const scopedAgentDir = settings?.getAgentDir();
+		const projectKey = settings?.get("memory.projectKey");
+		const agentDir = typeof scopedAgentDir === "string" ? scopedAgentDir : getAgentDir();
+		return [getMemoryRoot(agentDir, context.cwd, typeof projectKey === "string" ? projectKey : undefined)];
+	}
+	return memoryRootsFromRegistry();
 }
 
 function ensureWithinRoot(targetPath: string, rootPath: string): void {
@@ -197,14 +219,16 @@ function renderMnemopiMemory(url: InternalUrl, hit: MnemopiScopedMemoryHit): Int
 /**
  * Protocol handler for memory:// URLs.
  *
- * Walks every active session's memory root. Linked worktrees of the same
- * repository normally share a root; first one containing the file wins.
+ * Resolves file-backed roots against the calling session cwd when provided,
+ * honoring that live session's explicit `memory.projectKey` so linked worktrees
+ * of the same repository stay isolated by project identity. Contextless callers
+ * fall back to the live-session registry for legacy cross-session lookups.
  */
 export class MemoryProtocolHandler implements ProtocolHandler {
 	readonly scheme = "memory";
 	readonly immutable = true;
 
-	async resolve(url: InternalUrl): Promise<InternalResource> {
+	async resolve(url: InternalUrl, context?: ResolveContext): Promise<InternalResource> {
 		const namespace = url.rawHost || url.hostname;
 		if (!namespace) {
 			throw new Error("memory:// URL requires a namespace: memory://root or memory://<memory-id>");
@@ -229,7 +253,7 @@ export class MemoryProtocolHandler implements ProtocolHandler {
 			);
 		}
 
-		const roots = memoryRootsFromRegistry();
+		const roots = memoryRootsForContext(context);
 		if (roots.length === 0) {
 			throw new Error(
 				"Memory artifacts are not available for this project yet. Run a session with memories enabled first.",
@@ -258,9 +282,9 @@ export class MemoryProtocolHandler implements ProtocolHandler {
 		throw new Error(`Memory file not found: ${url.href}`);
 	}
 
-	async complete(): Promise<UrlCompletion[]> {
+	async complete(_query?: string, context?: ResolveContext): Promise<UrlCompletion[]> {
 		const completions: UrlCompletion[] = [];
-		if (memoryRootsFromRegistry().length > 0) {
+		if (memoryRootsForContext(context).length > 0) {
 			completions.push({ value: MEMORY_NAMESPACE, description: "Project memory summary" });
 		}
 		if (mnemopiSessionStatesFromRegistry().length > 0) {

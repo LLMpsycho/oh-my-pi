@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { InternalUrlRouter } from "@oh-my-pi/pi-coding-agent/internal-urls";
 import { getMemoryRoot } from "@oh-my-pi/pi-coding-agent/memories";
 import {
@@ -45,6 +46,7 @@ async function withMemoryFixture(fn: (fixture: MemoryFixture) => Promise<void>):
 					getArtifactsDir: () => null,
 					getSessionId: () => "test",
 				},
+				settings: Settings.isolated(),
 			} as unknown as AgentSession,
 			sessionFile: null,
 		});
@@ -78,6 +80,181 @@ describe("MemoryProtocolHandler", () => {
 		});
 	});
 
+	it("resolves memory://root against the caller cwd when multiple sessions are live", async () => {
+		const cleanupRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-protocol-isolation-"));
+		const previousAgentDir = getAgentDir();
+		try {
+			const agentDir = path.join(cleanupRoot, "agent");
+			setAgentDir(agentDir);
+
+			const firstCwd = path.join(cleanupRoot, "first-project");
+			const secondCwd = path.join(cleanupRoot, "second-project");
+			await fs.mkdir(firstCwd, { recursive: true });
+			await fs.mkdir(secondCwd, { recursive: true });
+
+			const firstMemoryRoot = getMemoryRoot(agentDir, firstCwd);
+			const secondMemoryRoot = getMemoryRoot(agentDir, secondCwd);
+			await fs.mkdir(firstMemoryRoot, { recursive: true });
+			await fs.mkdir(secondMemoryRoot, { recursive: true });
+
+			const firstSummary = "first registered session summary";
+			const secondSummary = "second session cwd summary";
+			await Bun.write(path.join(firstMemoryRoot, "memory_summary.md"), firstSummary);
+			await Bun.write(path.join(secondMemoryRoot, "memory_summary.md"), secondSummary);
+
+			AgentRegistry.global().register({
+				id: "first-session",
+				displayName: "first-session",
+				kind: "main",
+				session: {
+					sessionManager: {
+						getCwd: () => firstCwd,
+						getArtifactsDir: () => null,
+						getSessionId: () => "first-session",
+					},
+					settings: Settings.isolated(),
+				} as unknown as AgentSession,
+				sessionFile: null,
+			});
+			AgentRegistry.global().register({
+				id: "second-session",
+				displayName: "second-session",
+				kind: "main",
+				session: {
+					sessionManager: {
+						getCwd: () => secondCwd,
+						getArtifactsDir: () => null,
+						getSessionId: () => "second-session",
+					},
+					settings: Settings.isolated(),
+				} as unknown as AgentSession,
+				sessionFile: null,
+			});
+
+			const router = InternalUrlRouter.instance();
+			const resource = await router.resolve("memory://root", { cwd: secondCwd });
+
+			expect(resource.content).toBe(secondSummary);
+			expect(resource.content).not.toBe(firstSummary);
+		} finally {
+			setAgentDir(previousAgentDir);
+			await removeWithRetries(cleanupRoot);
+		}
+	});
+
+	it("uses the caller settings project key for contextful resolution", async () => {
+		const cleanupRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-protocol-explicit-key-"));
+		const previousAgentDir = getAgentDir();
+		try {
+			const agentDir = path.join(cleanupRoot, "agent");
+			await fs.mkdir(agentDir, { recursive: true });
+			setAgentDir(agentDir);
+
+			const cwd = path.join(cleanupRoot, "shared-project");
+			await fs.mkdir(cwd, { recursive: true });
+
+			const firstKey = "github.com/example/first";
+			const callerKey = "github.com/example/caller";
+			const cwdRoot = getMemoryRoot(agentDir, cwd);
+			const firstRoot = getMemoryRoot(agentDir, cwd, firstKey);
+			const callerRoot = getMemoryRoot(agentDir, cwd, callerKey);
+			await Promise.all([cwdRoot, firstRoot, callerRoot].map(root => fs.mkdir(root, { recursive: true })));
+
+			const cwdSummaryPath = path.join(cwdRoot, "memory_summary.md");
+			const firstSummaryPath = path.join(firstRoot, "memory_summary.md");
+			const callerSummaryPath = path.join(callerRoot, "memory_summary.md");
+			await Bun.write(cwdSummaryPath, "cwd-derived summary");
+			await Bun.write(firstSummaryPath, "first session summary");
+			await Bun.write(callerSummaryPath, "caller session summary");
+
+			const firstSettings = Settings.isolated({ "memory.projectKey": firstKey });
+			const callerSettings = Settings.isolated({ "memory.projectKey": callerKey });
+			AgentRegistry.global().register({
+				id: "first-shared-cwd",
+				displayName: "first-shared-cwd",
+				kind: "main",
+				session: {
+					sessionManager: {
+						getCwd: () => cwd,
+						getArtifactsDir: () => null,
+						getSessionId: () => "first-shared-cwd",
+					},
+					settings: firstSettings,
+				} as unknown as AgentSession,
+				sessionFile: null,
+			});
+			AgentRegistry.global().register({
+				id: "caller-shared-cwd",
+				displayName: "caller-shared-cwd",
+				kind: "main",
+				session: {
+					sessionManager: {
+						getCwd: () => cwd,
+						getArtifactsDir: () => null,
+						getSessionId: () => "caller-shared-cwd",
+					},
+					settings: callerSettings,
+				} as unknown as AgentSession,
+				sessionFile: null,
+			});
+
+			const resource = await InternalUrlRouter.instance().resolve("memory://root/memory_summary.md", {
+				cwd,
+				settings: callerSettings,
+			});
+
+			expect(resource.content).toBe("caller session summary");
+			expect(resource.sourcePath).toBe(await fs.realpath(callerSummaryPath));
+			expect(resource.sourcePath).not.toBe(await fs.realpath(firstSummaryPath));
+			expect(resource.sourcePath).not.toBe(await fs.realpath(cwdSummaryPath));
+		} finally {
+			setAgentDir(previousAgentDir);
+			await removeWithRetries(cleanupRoot);
+		}
+	});
+
+	it("uses a registered session project key for contextless resolution", async () => {
+		const cleanupRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-protocol-contextless-key-"));
+		const previousAgentDir = getAgentDir();
+		try {
+			const agentDir = path.join(cleanupRoot, "agent");
+			await fs.mkdir(agentDir, { recursive: true });
+			setAgentDir(agentDir);
+
+			const cwd = path.join(cleanupRoot, "project");
+			const projectKey = "github.com/example/contextless";
+			await fs.mkdir(cwd, { recursive: true });
+			const memoryRoot = getMemoryRoot(agentDir, cwd, projectKey);
+			await fs.mkdir(memoryRoot, { recursive: true });
+			const summaryPath = path.join(memoryRoot, "memory_summary.md");
+			await Bun.write(summaryPath, "registered project summary");
+
+			const settings = Settings.isolated({ "memory.projectKey": projectKey });
+			AgentRegistry.global().register({
+				id: "contextless-session",
+				displayName: "contextless-session",
+				kind: "main",
+				session: {
+					sessionManager: {
+						getCwd: () => cwd,
+						getArtifactsDir: () => null,
+						getSessionId: () => "contextless-session",
+					},
+					settings,
+				} as unknown as AgentSession,
+				sessionFile: null,
+			});
+
+			const resource = await InternalUrlRouter.instance().resolve("memory://root/memory_summary.md");
+
+			expect(resource.content).toBe("registered project summary");
+			expect(resource.sourcePath).toBe(await fs.realpath(summaryPath));
+		} finally {
+			setAgentDir(previousAgentDir);
+			await removeWithRetries(cleanupRoot);
+		}
+	});
+
 	it("resolves memory://root/<path> within memory root", async () => {
 		await withMemoryFixture(async ({ memoryRoot }) => {
 			const skillPath = path.join(memoryRoot, "skills", "demo", "SKILL.md");
@@ -90,6 +267,69 @@ describe("MemoryProtocolHandler", () => {
 			expect(resource.content).toBe("demo skill");
 			expect(resource.contentType).toBe("text/markdown");
 		});
+	});
+
+	it("prefers the caller cwd memory root over earlier registered sessions", async () => {
+		const cleanupRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-protocol-"));
+		const previousAgentDir = getAgentDir();
+		try {
+			const agentDir = path.join(cleanupRoot, "agent");
+			await fs.mkdir(agentDir, { recursive: true });
+			setAgentDir(agentDir);
+
+			const firstCwd = path.join(cleanupRoot, "project-a");
+			const secondCwd = path.join(cleanupRoot, "project-b");
+			await fs.mkdir(firstCwd, { recursive: true });
+			await fs.mkdir(secondCwd, { recursive: true });
+
+			const firstMemoryRoot = getMemoryRoot(agentDir, firstCwd);
+			const secondMemoryRoot = getMemoryRoot(agentDir, secondCwd);
+			await fs.mkdir(firstMemoryRoot, { recursive: true });
+			await fs.mkdir(secondMemoryRoot, { recursive: true });
+
+			await Bun.write(path.join(firstMemoryRoot, "memory_summary.md"), "first session summary");
+			const secondSummaryPath = path.join(secondMemoryRoot, "memory_summary.md");
+			await Bun.write(secondSummaryPath, "second session summary");
+
+			AgentRegistry.global().register({
+				id: "test-first",
+				displayName: "test first",
+				kind: "main",
+				session: {
+					sessionManager: {
+						getCwd: () => firstCwd,
+						getArtifactsDir: () => null,
+						getSessionId: () => "test-first",
+					},
+					settings: Settings.isolated(),
+				} as unknown as AgentSession,
+				sessionFile: null,
+			});
+			AgentRegistry.global().register({
+				id: "test-second",
+				displayName: "test second",
+				kind: "main",
+				session: {
+					sessionManager: {
+						getCwd: () => secondCwd,
+						getArtifactsDir: () => null,
+						getSessionId: () => "test-second",
+					},
+					settings: Settings.isolated(),
+				} as unknown as AgentSession,
+				sessionFile: null,
+			});
+
+			const resource = await InternalUrlRouter.instance().resolve("memory://root/memory_summary.md", {
+				cwd: secondCwd,
+			});
+
+			expect(resource.content).toBe("second session summary");
+			expect(resource.sourcePath).toBe(await fs.realpath(secondSummaryPath));
+		} finally {
+			setAgentDir(previousAgentDir);
+			await removeWithRetries(cleanupRoot);
+		}
 	});
 
 	it("throws for unknown memory namespace when no mnemopi backend is active", async () => {
@@ -178,6 +418,7 @@ async function withMnemopiSession(
 			getArtifactsDir: () => null,
 			getSessionId: () => "test-mnemopi",
 		},
+		settings: Settings.isolated(),
 		emitNotice: () => {},
 		getHindsightSessionState: () => undefined,
 	} as unknown as AgentSession;
