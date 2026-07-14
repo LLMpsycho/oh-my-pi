@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Upstream sync with memory-project protection</title>
+</head>
+<body>
+  <article>
+    <h1>Upstream sync with memory-project protection</h1>
+    <dl>
+      <dt>Date</dt>
+      <dd>2026-07-14</dd>
+      <dt>Commit</dt>
+      <dd><code>1782b7698</code>, pushed to <code>origin/main</code></dd>
+      <dt>Summary</dt>
+      <dd>Merged <code>upstream/main</code> through <code>14b5da76a</code> into the LLMpsycho fork, preserving project-scoped memory behavior and installing the resulting <code>omp/16.5.1</code> binary.</dd>
+    </dl>
+
+    <section>
+      <h2>What changed</h2>
+      <ul>
+        <li>Resolved the merge conflict in <code>packages/coding-agent/src/internal-urls/memory-protocol.ts</code>.</li>
+        <li>Kept contextless registry resolution keyed by each session's <code>memory.projectKey</code>.</li>
+        <li>Fixed contextful <code>memory://</code> resolution to consume the caller's <code>ResolveContext.settings</code>, including a custom agent directory.</li>
+        <li>Forwarded caller settings through Bash internal-URL expansion so explicit memory keys work in commands as well as direct reads.</li>
+        <li>Added regressions for contextful explicit keys, contextless registered keys, and Bash context propagation.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Root cause</h2>
+      <p>The upstream caller-cwd isolation change used only <code>context.cwd</code> for file-backed memory roots. That bypassed the fork's explicit project identity and selected a cwd-derived root when a session configured <code>memory.projectKey</code>. Bash expansion also forwarded cwd without settings.</p>
+    </section>
+
+    <section>
+      <h2>Verification</h2>
+      <ul>
+        <li><code>bun test packages/coding-agent/test/internal-urls/memory-protocol.test.ts packages/coding-agent/test/tools/bash-skill-urls.test.ts</code>: 47 passed, 0 failed.</li>
+        <li><code>bun --cwd=packages/coding-agent run check</code>: passed.</li>
+        <li>Focused Semgrep gate for the changed memory URL source modules: passed.</li>
+        <li><code>bun install</code>, native build, and coding-agent binary build completed.</li>
+        <li>The installed binary hash matched <code>packages/coding-agent/dist/omp</code>.</li>
+        <li><code>/Users/besi/.local/bin/omp --version</code>: <code>omp/16.5.1</code>.</li>
+        <li><code>/Users/besi/.local/bin/omp --smoke-test</code>: <code>smoke-test: ok</code>.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Follow-ups</h2>
+      <ul>
+        <li><code>packages/coding-agent/src/prompts/agents/librarian.md</code> remains an unrelated unstaged working-tree change and was intentionally excluded.</li>
+        <li><code>.omo/</code> remains untracked local runtime data and was intentionally excluded.</li>
+        <li>A broader Semgrep scan still reports existing cast findings in unrelated hunks of <code>bash.ts</code> and test mocks.</li>
+      </ul>
+    </section>
+  </article>
+</body>
+</html>
