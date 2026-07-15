@@ -38,11 +38,11 @@ import {
 } from "../thinking";
 import { isAuthenticated, kNoAuth, type ModelRegistry } from "./model-registry";
 import {
+	AUTOMATIC_MODEL_ROLE_IDS,
 	DEFAULT_MODEL_ROLE_ALIAS,
 	formatModelRoleAlias,
 	LEGACY_MODEL_ROLE_ALIAS_PREFIX,
 	MODEL_ROLE_ALIAS_PREFIX,
-	MODEL_ROLE_IDS,
 	type ModelRole,
 } from "./model-roles";
 import type { Settings } from "./settings";
@@ -860,7 +860,7 @@ const DEFAULT_MODEL_ROLE = "default";
 const MODEL_ROLE_ALIAS_PREFIXES = [MODEL_ROLE_ALIAS_PREFIX, LEGACY_MODEL_ROLE_ALIAS_PREFIX];
 
 function isModelRole(role: string): role is ModelRole {
-	return (MODEL_ROLE_IDS as string[]).includes(role);
+	return AUTOMATIC_MODEL_ROLE_IDS.some(candidate => candidate === role);
 }
 
 /**
@@ -1187,7 +1187,7 @@ export function resolveModelFromSettings(options: {
 	roleOrder?: readonly ModelRole[];
 }): Model<Api> | undefined {
 	const { settings, availableModels, matchPreferences, roleOrder } = options;
-	const roles = roleOrder ?? MODEL_ROLE_IDS;
+	const roles = roleOrder ?? AUTOMATIC_MODEL_ROLE_IDS;
 	let sawConfiguredProviderQualifiedRole = false;
 	for (const role of roles) {
 		const configured = settings.getModelRole(role);

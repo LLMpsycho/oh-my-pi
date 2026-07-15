@@ -1,10 +1,31 @@
 import { describe, expect, it } from "bun:test";
 import { Effort } from "@oh-my-pi/pi-ai";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
-import { resolveAgentModelPatterns, resolveModelOverride } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import {
+	type ModelLookupRegistry,
+	resolveAgentModelPatterns,
+	resolveModelFromSettings,
+	resolveModelOverride,
+	resolveModelRoleValue,
+} from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import { getKnownRoleIds } from "@oh-my-pi/pi-coding-agent/config/model-roles";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { getBundledAgent } from "@oh-my-pi/pi-coding-agent/task/agents";
 import { AUTO_THINKING } from "@oh-my-pi/pi-coding-agent/thinking";
+
+const USER_AGENT_NAMES = [
+	"api-designer",
+	"backend",
+	"debug",
+	"devops",
+	"metis",
+	"migrator",
+	"momus",
+	"oracle",
+	"performance",
+	"prometheus",
+	"sentinel",
+] as const;
 
 describe("bundled agent parsing", () => {
 	it("lets reviewer inherit thinking effort from its model role", () => {
@@ -56,5 +77,58 @@ describe("bundled agent parsing", () => {
 		expect(resolved.model?.id).toBe("gpt-5.5");
 		expect(resolved.thinkingLevel).toBe(Effort.XHigh);
 		expect(resolved.explicitThinkingLevel).toBe(true);
+	});
+
+	it("loads the imported user agents with dedicated model roles", () => {
+		for (const name of USER_AGENT_NAMES) {
+			const agent = getBundledAgent(name);
+			expect(agent?.source).toBe("bundled");
+			expect(agent?.model).toEqual([`@${name.toUpperCase()}`]);
+		}
+
+		expect(getBundledAgent("librarian")?.model).toEqual(["@LIBRARIAN"]);
+		expect(getBundledAgent("tdd-reviewer")?.model).toEqual(["@TDD-REVIEWER"]);
+	});
+
+	it("exposes agent roles without adding them to primary model fallback", () => {
+		const settings = Settings.isolated();
+		const knownRoles = getKnownRoleIds(settings);
+
+		for (const name of USER_AGENT_NAMES) {
+			expect(knownRoles).toContain(name.toUpperCase());
+		}
+		expect(knownRoles).toContain("TDD-REVIEWER");
+		expect(knownRoles).not.toContain("REVIEWER");
+		expect(settings.getModelRole("ORACLE")).toBe("openai-codex/gpt-5.5");
+		expect(Settings.isolated({ modelRoles: { slow: "@slow" } }).getModelRole("ORACLE")).toBe("openai-codex/gpt-5.5");
+
+		const gpt55 = buildModel({
+			id: "gpt-5.5",
+			name: "GPT-5.5 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api/codex",
+			reasoning: true,
+			thinking: { mode: "effort", efforts: [Effort.Low, Effort.Medium, Effort.High, Effort.XHigh] },
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 272000,
+			maxTokens: 128000,
+		});
+		const registry: ModelLookupRegistry = { getAvailable: () => [gpt55] };
+		const planConfigured = Settings.isolated({ modelRoles: { plan: "openai-codex/gpt-5.5" } });
+		const apiDesigner = getBundledAgent("api-designer");
+		const apiPatterns = resolveAgentModelPatterns({ agentModel: apiDesigner?.model, settings: planConfigured });
+		expect(resolveModelOverride(apiPatterns, registry, planConfigured).model).toBe(gpt55);
+		const configured = Settings.isolated({ modelRoles: { ORACLE: "openai-codex/gpt-5.5" } });
+		expect(resolveModelRoleValue("@ORACLE", [gpt55], { settings: configured }).model).toBe(gpt55);
+
+		const primary = { ...gpt55, id: "primary", name: "Primary" };
+		expect(
+			resolveModelFromSettings({
+				settings: configured,
+				availableModels: [primary, gpt55],
+			}),
+		).toBe(primary);
 	});
 });

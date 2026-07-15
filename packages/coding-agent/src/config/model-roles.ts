@@ -3,8 +3,8 @@
  */
 
 import { isValidThemeColor, type ThemeColor } from "../modes/theme/theme";
+import { BUNDLED_AGENT_ROLE_IDS } from "./bundled-agent-roles";
 import type { Settings } from "./settings";
-
 /** Canonical prefix for a configured model role selector. */
 export const MODEL_ROLE_ALIAS_PREFIX = "@";
 
@@ -52,7 +52,7 @@ export const MODEL_ROLES: Record<ModelRole, ModelRoleInfo> = {
 	advisor: { tag: "ADVISOR", name: "Advisor", color: "accent" },
 };
 
-export const MODEL_ROLE_IDS: ModelRole[] = [
+export const AUTOMATIC_MODEL_ROLE_IDS: ModelRole[] = [
 	"default",
 	"smol",
 	"slow",
@@ -75,13 +75,14 @@ export type RoleInfo = ModelRoleInfo;
  * entries across settings.
  */
 export function getKnownRoleIds(settings: Settings): string[] {
-	const roles = MODEL_ROLE_IDS.filter(role => !MODEL_ROLES[role as ModelRole]?.hidden) as string[];
+	const roles = AUTOMATIC_MODEL_ROLE_IDS.filter(role => !MODEL_ROLES[role as ModelRole]?.hidden) as string[];
 	const seen = new Set<string>(roles);
 	const addRole = (role: string) => {
 		if (seen.has(role)) return;
 		seen.add(role);
 		roles.push(role);
 	};
+	for (const role of BUNDLED_AGENT_ROLE_IDS) addRole(role);
 
 	for (const role of settings.get("cycleOrder")) addRole(role);
 	for (const role in settings.getModelRoles()) addRole(role);

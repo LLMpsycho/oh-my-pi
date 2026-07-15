@@ -6,13 +6,25 @@
 import { Effort } from "@oh-my-pi/pi-ai";
 import { parseFrontmatter, prompt } from "@oh-my-pi/pi-utils";
 import { parseAgentFields } from "../discovery/helpers";
-import designerMd from "../prompts/agents/designer.md" with { type: "text" };
 // Embed agent markdown files at build time
+import apiDesignerMd from "../prompts/agents/api-designer.md" with { type: "text" };
+import backendMd from "../prompts/agents/backend.md" with { type: "text" };
+import debugMd from "../prompts/agents/debug.md" with { type: "text" };
+import designerMd from "../prompts/agents/designer.md" with { type: "text" };
+import devopsMd from "../prompts/agents/devops.md" with { type: "text" };
 import agentFrontmatterTemplate from "../prompts/agents/frontmatter.md" with { type: "text" };
 import librarianMd from "../prompts/agents/librarian.md" with { type: "text" };
+import metisMd from "../prompts/agents/metis.md" with { type: "text" };
+import migratorMd from "../prompts/agents/migrator.md" with { type: "text" };
+import momusMd from "../prompts/agents/momus.md" with { type: "text" };
+import oracleMd from "../prompts/agents/oracle.md" with { type: "text" };
+import performanceMd from "../prompts/agents/performance.md" with { type: "text" };
+import prometheusMd from "../prompts/agents/prometheus.md" with { type: "text" };
 import reviewerMd from "../prompts/agents/reviewer.md" with { type: "text" };
 import scoutMd from "../prompts/agents/scout.md" with { type: "text" };
+import sentinelMd from "../prompts/agents/sentinel.md" with { type: "text" };
 import taskMd from "../prompts/agents/task.md" with { type: "text" };
+import tddReviewerMd from "../prompts/agents/tdd-reviewer.md" with { type: "text" };
 import { AUTO_THINKING } from "../thinking";
 
 import type { AgentDefinition, AgentSource } from "./types";
@@ -44,6 +56,18 @@ const EMBEDDED_AGENT_DEFS: EmbeddedAgentDef[] = [
 	{ fileName: "designer.md", template: designerMd },
 	{ fileName: "reviewer.md", template: reviewerMd },
 	{ fileName: "librarian.md", template: librarianMd },
+	{ fileName: "api-designer.md", template: apiDesignerMd },
+	{ fileName: "backend.md", template: backendMd },
+	{ fileName: "debug.md", template: debugMd },
+	{ fileName: "devops.md", template: devopsMd },
+	{ fileName: "metis.md", template: metisMd },
+	{ fileName: "migrator.md", template: migratorMd },
+	{ fileName: "momus.md", template: momusMd },
+	{ fileName: "oracle.md", template: oracleMd },
+	{ fileName: "performance.md", template: performanceMd },
+	{ fileName: "prometheus.md", template: prometheusMd },
+	{ fileName: "sentinel.md", template: sentinelMd },
+	{ fileName: "tdd-reviewer.md", template: tddReviewerMd },
 	{
 		fileName: "task.md",
 		frontmatter: {

@@ -66,6 +66,9 @@
 - Fixed `--reasoning-slide-plan` silently ending the run with no code written when the model answered with a text-only reply.
 - Fixed launch tool rendering issues, including stacked pending headers and confusing start/wait results when readiness timed out.
 - Fixed the in-process `stat` and other GNU-flavored shell builtins (such as `date`, `sed`, `mktemp`, `tail`, `find`, `base64`, and `ln`) mangling or failing on macOS/BSD-style invocations.
+### Added
+
+- Bundled the configured specialist agents with dedicated model roles, including normalized frontmatter and embedded prompt definitions for reproducible dispatch.
 
 ## [16.5.1] - 2026-07-14
 

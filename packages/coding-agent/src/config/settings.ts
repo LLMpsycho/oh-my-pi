@@ -34,6 +34,7 @@ import { isLightTheme, setAutoThemeMapping, setColorBlindMode, setSymbolPreset }
 import { AgentStorage } from "../session/agent-storage";
 import { normalizeToolName } from "../tools/builtin-names";
 import { type EditMode, normalizeEditMode } from "../utils/edit-mode";
+import { BUNDLED_AGENT_MODEL_ROLES } from "./bundled-agent-roles";
 import { withFileLock } from "./file-lock";
 import {
 	type BashInterceptorRule,
@@ -639,8 +640,11 @@ export class Settings {
 	 */
 	getModelRole(role: ModelRole | string): string | undefined {
 		const roles: unknown = this.get("modelRoles");
-		if (!isRecord(roles)) return undefined;
-		return modelRoleValueFromUnknown(roles[role]);
+		if (isRecord(roles)) {
+			const configured = modelRoleValueFromUnknown(roles[role]);
+			if (configured !== undefined) return configured;
+		}
+		return BUNDLED_AGENT_MODEL_ROLES[role];
 	}
 
 	/**
@@ -648,9 +652,9 @@ export class Settings {
 	 */
 	getModelRoles(): ReadOnlyDict<string> {
 		const roles: unknown = this.get("modelRoles");
-		if (!isRecord(roles)) return {};
+		const normalized: Record<string, string> = { ...BUNDLED_AGENT_MODEL_ROLES };
+		if (!isRecord(roles)) return normalized;
 
-		const normalized: Record<string, string> = {};
 		for (const role in roles) {
 			if (!Object.hasOwn(roles, role)) continue;
 			const modelId = modelRoleValueFromUnknown(roles[role]);

@@ -187,7 +187,7 @@ import {
 	resolveModelOverride,
 	resolveModelRoleValue,
 } from "../config/model-resolver";
-import { getKnownRoleIds, MODEL_ROLE_IDS, MODEL_ROLES } from "../config/model-roles";
+import { AUTOMATIC_MODEL_ROLE_IDS, getKnownRoleIds, MODEL_ROLES } from "../config/model-roles";
 import { expandPromptTemplate, type PromptTemplate } from "../config/prompt-templates";
 import { buildServiceTierByFamily, serviceTierForAllFamilies, serviceTierSettingToTier } from "../config/service-tier";
 import type { Settings, SkillsSettings } from "../config/settings";
@@ -12741,7 +12741,7 @@ export class AgentSession {
 			addCandidate(this.#resolveCompactionConfiguredTarget(preferredModel, availableModels));
 		}
 		addCandidate(preferredModel ?? undefined);
-		for (const role of MODEL_ROLE_IDS) {
+		for (const role of AUTOMATIC_MODEL_ROLE_IDS) {
 			addCandidate(this.#resolveRoleModelFull(role, availableModels, preferredModel ?? undefined).model);
 		}
 

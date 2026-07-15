@@ -23,7 +23,7 @@ import {
 } from "@oh-my-pi/pi-tui";
 import { formatNumber } from "@oh-my-pi/pi-utils";
 import { getModelMatchPreferences, resolveModelRoleValue } from "../../config/model-resolver";
-import { getKnownRoleIds, getRoleInfo, MODEL_ROLE_IDS } from "../../config/model-roles";
+import { AUTOMATIC_MODEL_ROLE_IDS, getKnownRoleIds, getRoleInfo } from "../../config/model-roles";
 import type { Settings } from "../../config/settings";
 import type { ModelPerfStats } from "../../session/agent-storage";
 import { AUTO_THINKING, type ConfiguredThinkingLevel, parseConfiguredThinkingLevel } from "../../thinking";
@@ -145,8 +145,8 @@ function extractVersionNumber(id: string): number {
 /** Rank a model by the first built-in role it is assigned to (lower = earlier role). */
 function computeModelRank(model: Model, roles: RoleAssignments): number {
 	let i = 0;
-	while (i < MODEL_ROLE_IDS.length) {
-		const assigned = roles[MODEL_ROLE_IDS[i]];
+	while (i < AUTOMATIC_MODEL_ROLE_IDS.length) {
+		const assigned = roles[AUTOMATIC_MODEL_ROLE_IDS[i]];
 		if (assigned && modelsAreEqual(assigned.model, model)) {
 			break;
 		}
@@ -790,7 +790,7 @@ export class ModelBrowser implements Component {
 			if (getRoleInfo(role, this.#settings).hidden) return;
 			chips.push(formatRoleChip(role, assignment, this.#settings));
 		};
-		for (const role of MODEL_ROLE_IDS) pushRole(role);
+		for (const role of AUTOMATIC_MODEL_ROLE_IDS) pushRole(role);
 		for (const role in this.#roles) pushRole(role);
 		const line2 = chips.length > 0 ? truncateToWidth(`  ${chips.join(theme.fg("dim", " · "))}`, width) : "";
 		return [line1, line2];
