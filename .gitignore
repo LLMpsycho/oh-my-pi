@@ -43,6 +43,7 @@ packages/ai/test/.temp-images/
 .omp/plugins/
 .pi_config/
 .opencode/
+.omo/run-continuation/
 .worktrees/
 .worktree/
 compaction-results/
