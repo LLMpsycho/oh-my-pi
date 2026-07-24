@@ -7,7 +7,7 @@ import {
 	OPENAI_HEADERS,
 } from "@oh-my-pi/pi-catalog/wire/codex";
 import { LiveWebRtcPeer } from "@oh-my-pi/pi-natives";
-import { generateLiveAttestation } from "./attestation";
+import { generateCodexAttestation } from "./attestation";
 import {
 	buildLiveSessionPayload,
 	type LiveClientMessage,
@@ -136,7 +136,7 @@ export class CodexLiveTransport {
 		if (!options.signal?.aborted) options.signal?.addEventListener("abort", this.#abortListener, { once: true });
 	}
 
-	/** Establish the browser peer, perform Codex signaling, and wait for the data channel. */
+	/** Establish the native peer, perform Codex signaling, and wait for the data channel. */
 	connect(): Promise<void> {
 		if (this.#state === "connected") return Promise.resolve();
 		if (this.#connectPromise) return this.#connectPromise;
@@ -184,7 +184,7 @@ export class CodexLiveTransport {
 	}
 
 	async #signal(offer: string): Promise<LiveSignalingResult> {
-		const attestation = await generateLiveAttestation();
+		const attestation = await generateCodexAttestation();
 		return await withOAuthAccess(
 			this.#options.authStorage,
 			LIVE_PROVIDER,

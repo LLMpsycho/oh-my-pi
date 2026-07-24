@@ -23,8 +23,8 @@
 #![feature(alloc_error_hook)]
 
 pub mod appearance;
-pub mod audio;
 pub mod ast;
+pub mod audio;
 pub mod block;
 pub mod clipboard;
 pub mod crash_handler;
@@ -260,7 +260,7 @@ fn create_windows_napi_tokio_runtime() -> Option<tokio::runtime::Runtime> {
 /// MUST stay in sync with `VERSION_SENTINEL_EXPORT` in
 /// `packages/natives/native/index.js` (which derives the name from
 /// `package.json#version`).
-#[napi(js_name = "__piNativesV17_1_0")]
+#[napi(js_name = "__piNativesV17_1_1")]
 pub const fn pi_natives_version_sentinel() {}
 
 /// Native module entry point: install crash diagnostics before any tool can

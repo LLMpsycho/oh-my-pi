@@ -4,7 +4,7 @@ exclude = ["crates/vendor/brush-core", "crates/vendor/brush-builtins"]
 resolver = "3"
 
 [workspace.package]
-version = "17.1.0"
+version = "17.1.1"
 edition = "2024"
 license = "MIT"
 authors = ["Can Boluk"]
@@ -242,7 +242,7 @@ xxhash-rust = { version = "0.8", features = ["xxh64"] }
 # Audio & Realtime Media
 # ──────────────────────────────────────────────────────────────────────────────
 audiopus_sys = { version = "0.2.2", features = ["static"] }
-miniaudio = { package = "om-fork-miniaudio", version = "0.12.2" }
+maudio = { version = "0.1.6", features = ["generate-bindings"] }
 opus = "0.3.1"
 webrtc = "0.17.2"
 
