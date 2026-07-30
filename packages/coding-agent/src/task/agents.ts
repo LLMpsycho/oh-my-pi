@@ -22,6 +22,7 @@ import performanceMd from "../prompts/agents/performance.md" with { type: "text"
 import prometheusMd from "../prompts/agents/prometheus.md" with { type: "text" };
 import reviewerMd from "../prompts/agents/reviewer.md" with { type: "text" };
 import scoutMd from "../prompts/agents/scout.md" with { type: "text" };
+import securityReviewerMd from "../prompts/agents/security-reviewer.md" with { type: "text" };
 import sentinelMd from "../prompts/agents/sentinel.md" with { type: "text" };
 import taskMd from "../prompts/agents/task.md" with { type: "text" };
 import tddReviewerMd from "../prompts/agents/tdd-reviewer.md" with { type: "text" };
@@ -56,6 +57,7 @@ const EMBEDDED_AGENT_DEFS: EmbeddedAgentDef[] = [
 	{ fileName: "scout.md", template: scoutMd },
 	{ fileName: "designer.md", template: designerMd },
 	{ fileName: "reviewer.md", template: reviewerMd },
+	{ fileName: "security-reviewer.md", template: securityReviewerMd },
 	{ fileName: "librarian.md", template: librarianMd },
 	{ fileName: "api-designer.md", template: apiDesignerMd },
 	{ fileName: "backend.md", template: backendMd },
