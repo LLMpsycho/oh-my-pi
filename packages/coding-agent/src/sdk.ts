@@ -1686,6 +1686,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// entries capture it at fetch time and are dropped at injection if a newer
 		// mutation (any tool) bumped it in the meantime.
 		const fileMutationVersions = new Map<string, number>();
+		const disposeCallbacks = new Set<() => void>();
 		const activeToolNames = new Set<string>();
 		const toolRegistry = new Map<string, Tool>();
 		const setActiveToolNames = (names: Iterable<string>): void => {
@@ -1739,6 +1740,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			trackEvalExecution: (execution, abortController) =>
 				session ? session.trackEvalExecution(execution, abortController) : execution,
 			getSessionId: () => sessionManager.getSessionId?.() ?? null,
+			isDisposed: () => session?.isDisposed ?? false,
 			getHindsightSessionState: () => session?.getHindsightSessionState(),
 			getMnemopiSessionState: () => session?.getMnemopiSessionState(),
 			getAgentId: () => resolvedAgentId,
@@ -1765,6 +1767,14 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			recordEvalSubagentUsage: output => sessionManager.recordEvalSubagentOutput(output),
 			getClientBridge: () => session?.clientBridge,
 			queueDeferredDiagnostics: entry => session?.yieldQueue.enqueue(LSP_LATE_DIAGNOSTIC_MESSAGE_TYPE, entry),
+			queueLaunchCompletion: notification =>
+				session?.queueLaunchCompletion(notification) ??
+				Promise.reject(new Error("Session unavailable for launch completion delivery")),
+			registerDisposeCallback: callback => {
+				disposeCallbacks.add(callback);
+				return () => disposeCallbacks.delete(callback);
+			},
+			registerSessionChangeCallback: callback => session?.registerSessionChangeCallback(callback),
 			bumpFileMutationVersion: path => {
 				const next = (fileMutationVersions.get(path) ?? 0) + 1;
 				fileMutationVersions.set(path, next);
@@ -2679,7 +2689,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// a real tool.
 		//
 		// It must be a `replace`-mode instance. `PiEditExecArgs` carries
-		// `old_text`/`new_text` pairs, which is exactly `replace`'s schema and
+		// `old_string`/`new_string` replacements, which is exactly `replace`'s schema and
 		// nothing else's — under the default `hashline` mode the frame's args do
 		// not match the tool's parameters at all. The registry instance follows
 		// the session's configured mode, so the bridge builds its own.
@@ -2880,8 +2890,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				}
 			}
 			let appendPrompt: string | undefined = appendParts.length > 0 ? appendParts.join("\n\n") : undefined;
-			// Owned/in-band tool dialects (non-native) require the catalog as `# Tool:`
-			// sections; native tool calling lets the compact name list suffice.
+			// Owned/in-band tool dialects (non-native) require the full functions-
+			// namespace catalog; native tool calling lets the compact name list suffice.
 			const nativeTools = resolveDialect(settings.get("tools.format"), agent?.state.model ?? model) === undefined;
 			const promptTools = projectSystemPromptToolMetadata(
 				tools,
@@ -3307,6 +3317,9 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				const id = sessionManager.getSessionId?.();
 				return id ? `${id}-advisor` : null;
 			},
+			queueLaunchCompletion: notification =>
+				session?.queueLaunchCompletion(notification) ??
+				Promise.reject(new Error("Session unavailable for launch completion delivery")),
 			getAgentId: () => "advisor",
 			// The primary's availability signals are wrong for advisors: their tool
 			// slate is filtered separately at runtime (default read/grep/glob, no
@@ -3522,6 +3535,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 					unsubscribeCredentialDisabled?.();
 					unsubscribeMcpNotifications?.();
 					unregisterMcpPostmortem?.();
+					for (const callback of disposeCallbacks) callback();
+					disposeCallbacks.clear();
 					// Drop refs so the process-global postmortem list doesn't retain
 					// the bridge closure past explicit dispose.
 					unsubscribeMcpNotifications = undefined;
