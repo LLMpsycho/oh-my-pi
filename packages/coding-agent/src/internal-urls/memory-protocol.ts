@@ -309,6 +309,10 @@ export class MemoryProtocolHandler implements ProtocolHandler {
 	readonly immutable = true;
 
 	async resolve(url: InternalUrl, context?: ResolveContext): Promise<InternalResource> {
+		const backend = memoryBackendFromContext(context);
+		if (backend === "off") {
+			throw new Error("Unknown protocol: memory://");
+		}
 		const namespace = url.rawHost || url.hostname;
 		if (!namespace) {
 			throw new Error("memory:// URL requires a namespace: memory://root or memory://<memory-id>");
@@ -322,7 +326,7 @@ export class MemoryProtocolHandler implements ProtocolHandler {
 		if (namespace !== MEMORY_NAMESPACE) {
 			const mnemopiStates = mnemopiSessionStatesFromRegistry();
 			const hindsightActive =
-				memoryBackendFromContext(context) === "hindsight" ||
+				backend === "hindsight" ||
 				(mnemopiStates.length === 0 &&
 					AgentRegistry.global()
 						.list()
