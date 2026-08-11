@@ -4,6 +4,7 @@ import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import {
 	type ModelLookupRegistry,
 	resolveAgentModelPatterns,
+	resolveAgentModelSelection,
 	resolveModelFromSettings,
 	resolveModelOverride,
 	resolveModelRoleValue,
@@ -130,5 +131,35 @@ describe("bundled agent parsing", () => {
 				availableModels: [primary, gpt55],
 			}),
 		).toBe(primary);
+	});
+
+	// The alias is expanded before it reaches the executor, so the role identity
+	// only survives as the `role` half of the selection. A subagent's inherited
+	// `retry.fallbackChains` entry is keyed off it — lose it and every bundled
+	// agent silently retries on the `default` role's chain.
+	it("keeps the role identity of every alias-routed bundled agent through expansion", () => {
+		const settings = Settings.isolated({
+			modelRoles: {
+				default: "anthropic/opus",
+				task: "anthropic/sonnet",
+				smol: "fast/hy3",
+				slow: "codex/sol",
+				designer: "anthropic/opus",
+			},
+		});
+
+		for (const [name, role, model] of [
+			["task", "task", "anthropic/sonnet"],
+			["sonic", "smol", "fast/hy3"],
+			["scout", "smol", "fast/hy3"],
+			["reviewer", "slow", "codex/sol"],
+			["designer", "designer", "anthropic/opus"],
+		] as const) {
+			const agent = getBundledAgent(name);
+			expect(resolveAgentModelSelection({ agentModel: agent?.model, settings })).toEqual({
+				patterns: [model],
+				role,
+			});
+		}
 	});
 });
