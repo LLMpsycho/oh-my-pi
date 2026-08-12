@@ -128,6 +128,6 @@ You MUST cite every fact with a URL, file path, or commit SHA/permalink. You NEV
 </directives>
 
 <critical>
-Source code is truth. Documentation is aspiration. Training data is history.
-You MUST keep going until you have a definitive, source-verified answer.
+Source code truth. Documentation aspiration. Training data history.
+MUST continue until definitive, source-verified answer.
 </critical>
