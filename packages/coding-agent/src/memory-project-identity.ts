@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { type GitRepository, repo } from "./utils/git";
+import * as vcs from "@oh-my-pi/pi-natives/vcs";
 
 const UNKNOWN_PROJECT = "unknown";
 const SSH_REMOTE_PATTERN = /^(?:[^@\s/]+@)?([^:\s/]+):(.+)$/;
@@ -87,8 +87,8 @@ function normalizeGitRemoteProjectKey(value: string | undefined): string | undef
 	}
 }
 
-function remoteProjectKey(repository: GitRepository): string | undefined {
-	const configText = readGitConfig(path.join(repository.commonDir, "config"));
+function remoteProjectKey(commonDir: string): string | undefined {
+	const configText = readGitConfig(path.join(commonDir, "config"));
 	if (!configText) return undefined;
 
 	let remoteName: string | undefined;
@@ -120,22 +120,22 @@ function remoteProjectKey(repository: GitRepository): string | undefined {
 	);
 }
 
-function localGitProjectKey(repository: GitRepository): string | undefined {
-	const commonDir = canonicalPath(repository.commonDir);
-	const primaryRoot = path.basename(commonDir) === ".git" ? path.dirname(commonDir) : commonDir;
+function localGitProjectKey(commonDir: string): string | undefined {
+	const resolvedCommonDir = canonicalPath(commonDir);
+	const primaryRoot = path.basename(resolvedCommonDir) === ".git" ? path.dirname(resolvedCommonDir) : resolvedCommonDir;
 	const basename = normalizeMemoryProjectKey(path.basename(primaryRoot));
 	if (!basename) return undefined;
-	return `local/${basename}/${Bun.hash(commonDir).toString(36)}`;
+	return `local/${basename}/${Bun.hash(resolvedCommonDir).toString(36)}`;
 }
 
 function gitProjectIdentity(cwd: string): MemoryProjectIdentity | undefined {
-	const repository = repo.resolveSync(cwd);
+	const repository = vcs.gitInfo(cwd);
 	if (!repository) return undefined;
-	const remoteKey = remoteProjectKey(repository);
+	const remoteKey = remoteProjectKey(repository.commonDir);
 	if (remoteKey) {
 		return { key: remoteKey, segment: memoryProjectSegment(remoteKey), source: "git-remote" };
 	}
-	const localKey = localGitProjectKey(repository);
+	const localKey = localGitProjectKey(repository.commonDir);
 	if (!localKey) return undefined;
 	return { key: localKey, segment: memoryProjectSegment(localKey), source: "git-common-dir" };
 }
