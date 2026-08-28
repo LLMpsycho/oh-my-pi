@@ -50,7 +50,11 @@ try {
 	await fs.rm(dir, { recursive: true, force: true });
 }
 `;
-		const result = await $`bun --eval ${script}`.cwd(packageRoot).quiet().nothrow();
-		expect(result.exitCode).toBe(0);
+		const result = await $`bun --eval ${script}`.cwd(packageRoot).nothrow();
+		if (result.exitCode !== 0) {
+			throw new Error(
+				`issue-966 script failed (${result.exitCode}):\n${result.stderr.toString()}\n${result.stdout.toString()}`,
+			);
+		}
 	});
 });

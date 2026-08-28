@@ -438,7 +438,7 @@ describe("ModelHub", () => {
 			installTestTheme();
 
 			hub.handleInput("\n");
-			const strip = footerLine(hub.render(220));
+			const strip = footerLine(hub.render(480));
 			expect(strip).toContain("default");
 			expect(strip).toContain("retry-fallback");
 			expect(strip).not.toContain("project default");
@@ -695,8 +695,8 @@ describe("ModelHub", () => {
 			installTestTheme();
 
 			hub.handleInput("\n"); // open the role strip
-			// At full width every chip fits and no left ellipsis appears.
-			expect(footerLine(hub.render(220))).not.toContain("…");
+			// Wide enough that every chip, including fork-bundled agent roles, fits.
+			expect(footerLine(hub.render(480))).not.toContain("…");
 
 			hub.handleInput(LEFT); // wrap to the trailing retry-fallback chip
 			const narrow = footerLine(hub.render(80));

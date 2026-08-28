@@ -20,7 +20,8 @@ import { getAgentDbPath, TempDir } from "@oh-my-pi/pi-utils";
 
 const GLOBAL_KIND = "memory_consolidate_global";
 const PROJECT_CWD = "/repo";
-const GLOBAL_KEY = `global:${PROJECT_CWD}`;
+// Identity segment for a non-git cwd is the basename, not the raw path.
+const GLOBAL_KEY = "global:repo";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
 	let resolve!: () => void;

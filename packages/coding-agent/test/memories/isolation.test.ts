@@ -56,8 +56,10 @@ describe("memory project isolation", () => {
 				.all() as { job_key: string }[];
 
 			expect(jobs).toHaveLength(2);
-			expect(jobs[0].job_key).toBe(`global:${CWD_A}`);
-			expect(jobs[1].job_key).toBe(`global:${CWD_B}`);
+			// Job keys use memory project identity segments (cwd basename when
+			// there is no git remote), not the raw working-directory path.
+			expect(jobs[0].job_key).toBe("global:alpha");
+			expect(jobs[1].job_key).toBe("global:beta");
 		} finally {
 			closeMemoryDb(db);
 		}
