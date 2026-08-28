@@ -122,7 +122,8 @@ function remoteProjectKey(commonDir: string): string | undefined {
 
 function localGitProjectKey(commonDir: string): string | undefined {
 	const resolvedCommonDir = canonicalPath(commonDir);
-	const primaryRoot = path.basename(resolvedCommonDir) === ".git" ? path.dirname(resolvedCommonDir) : resolvedCommonDir;
+	const primaryRoot =
+		path.basename(resolvedCommonDir) === ".git" ? path.dirname(resolvedCommonDir) : resolvedCommonDir;
 	const basename = normalizeMemoryProjectKey(path.basename(primaryRoot));
 	if (!basename) return undefined;
 	return `local/${basename}/${Bun.hash(resolvedCommonDir).toString(36)}`;
