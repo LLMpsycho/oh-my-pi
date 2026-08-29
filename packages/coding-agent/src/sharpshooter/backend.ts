@@ -65,7 +65,11 @@ async function readMemoryFile(
 	};
 }
 
-function readMemoryFiles(agentDir: string, cwd: string, projectKey?: string | null): Promise<SharpshooterFileSnapshot[]> {
+function readMemoryFiles(
+	agentDir: string,
+	cwd: string,
+	projectKey?: string | null,
+): Promise<SharpshooterFileSnapshot[]> {
 	return Promise.all(SHARPSHOOTER_MEMORY_FILES.map(name => readMemoryFile(agentDir, cwd, name, projectKey)));
 }
 
