@@ -56,8 +56,8 @@ describe("memory project isolation", () => {
 				.all() as { job_key: string }[];
 
 			expect(jobs).toHaveLength(2);
-			expect(jobs[0].job_key).toBe(`global:${CWD_A}`);
-			expect(jobs[1].job_key).toBe(`global:${CWD_B}`);
+			expect(jobs[0].job_key).toBe("global:alpha");
+			expect(jobs[1].job_key).toBe("global:beta");
 		} finally {
 			closeMemoryDb(db);
 		}

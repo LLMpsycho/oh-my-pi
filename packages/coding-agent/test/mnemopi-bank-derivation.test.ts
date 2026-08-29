@@ -3,7 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { computeMnemopiBankScope, extendRecallWithLegacyBanks } from "@oh-my-pi/pi-coding-agent/mnemopi/config";
+import {
+	computeMnemopiBankScope,
+	extendRecallWithLegacyBanks,
+	projectBankSegment,
+} from "@oh-my-pi/pi-coding-agent/mnemopi/config";
 import { removeWithRetries, TempDir } from "@oh-my-pi/pi-utils";
 
 // Set up a fixture filesystem we can reuse across the two regression
@@ -107,6 +111,27 @@ it("uses an explicit memory project key for the project bank", () => {
 	expect(scope.bank).toBe("team-github-com-org-repo");
 	expect(scope.retainBank).toBe("team-github-com-org-repo");
 	expect(scope.recallBanks).toEqual(["team-github-com-org-repo"]);
+});
+
+it("keys projectBankSegment by git remote instead of cwd", async () => {
+	const baseDir = await TempDir.create("@mnemopi-segment-remote-");
+	try {
+		const main = baseDir.join("repo-main");
+		const linked = baseDir.join("repo-feature");
+		const mainGit = path.join(main, ".git");
+		const linkedGitDir = path.join(mainGit, "worktrees", "repo-feature");
+		await fs.mkdir(linkedGitDir, { recursive: true });
+		await fs.mkdir(linked, { recursive: true });
+		await fs.writeFile(path.join(mainGit, "config"), `[remote "origin"]\n\turl = git@github.com:Org/Repo.git\n`);
+		await fs.writeFile(path.join(linked, ".git"), `gitdir: ${linkedGitDir}\n`);
+		await fs.writeFile(path.join(linkedGitDir, "commondir"), "../..\n");
+
+		expect(projectBankSegment(main)).toBe("github-com-org-repo");
+		expect(projectBankSegment(linked)).toBe("github-com-org-repo");
+		expect(projectBankSegment("/tmp/any", "github.com/Org/Repo.git")).toBe("github-com-org-repo");
+	} finally {
+		await baseDir.remove();
+	}
 });
 
 it("uses the git remote identity for sibling worktree banks", async () => {
