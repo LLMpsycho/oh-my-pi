@@ -20,7 +20,7 @@ import { getAgentDbPath, TempDir } from "@oh-my-pi/pi-utils";
 
 const GLOBAL_KIND = "memory_consolidate_global";
 const PROJECT_CWD = "/repo";
-const GLOBAL_KEY = `global:${PROJECT_CWD}`;
+const GLOBAL_KEY = "global:repo";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
 	let resolve!: () => void;

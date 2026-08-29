@@ -438,7 +438,7 @@ describe("ModelHub", () => {
 			installTestTheme();
 
 			hub.handleInput("\n");
-			const strip = footerLine(hub.render(220));
+			const strip = footerLine(hub.render(400));
 			expect(strip).toContain("default");
 			expect(strip).toContain("retry-fallback");
 			expect(strip).not.toContain("project default");
@@ -696,7 +696,7 @@ describe("ModelHub", () => {
 
 			hub.handleInput("\n"); // open the role strip
 			// At full width every chip fits and no left ellipsis appears.
-			expect(footerLine(hub.render(220))).not.toContain("…");
+			expect(footerLine(hub.render(400))).not.toContain("…");
 
 			hub.handleInput(LEFT); // wrap to the trailing retry-fallback chip
 			const narrow = footerLine(hub.render(80));
