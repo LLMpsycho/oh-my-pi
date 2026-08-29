@@ -167,6 +167,22 @@ function sharedBank(configured: string | undefined): string {
 }
 
 /**
+ * Stable project-identity segment shared by mnemopi bank scoping and the
+ * Sharpshooter project store.
+ *
+ * Uses the canonical memory project identity (explicit key → git remote →
+ * git common-dir). The cwd fallback includes an absolute-path hash so
+ * non-repository directories stay isolated.
+ */
+export function projectBankSegment(projectRoot: string, projectKey?: string | null): string {
+	const identity = resolveMemoryProjectIdentity(projectRoot, projectKey);
+	if (identity.source === "cwd") {
+		return limitBankName(`${identity.segment}-${Bun.hash(path.resolve(projectRoot || ".")).toString(36)}`);
+	}
+	return identity.segment;
+}
+
+/**
  * Derive the per-project bank id from the canonical memory project identity.
  *
  * Git remotes give sibling worktrees one bank. The cwd fallback keeps non-git
@@ -174,11 +190,7 @@ function sharedBank(configured: string | undefined): string {
  * already-fragmented installs lives in {@link extendRecallWithLegacyBanks}.
  */
 function projectBank(configured: string | undefined, cwd: string, projectKey?: string): string {
-	const identity = resolveMemoryProjectIdentity(cwd, projectKey);
-	const project =
-		identity.source === "cwd"
-			? limitBankName(`${identity.segment}-${Bun.hash(path.resolve(cwd)).toString(36)}`)
-			: identity.segment;
+	const project = projectBankSegment(cwd, projectKey);
 	const base = sanitizeBankName(configured);
 	return limitBankName(base ? `${base}-${project}` : project);
 }
