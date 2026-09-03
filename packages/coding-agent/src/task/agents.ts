@@ -56,11 +56,11 @@ function buildAgentContent(def: EmbeddedAgentDef): string {
 
 const EMBEDDED_AGENT_DEFS: EmbeddedAgentDef[] = [
 	{ fileName: "scout.md", template: scoutMd },
-	{ fileName: "designer.md", template: designerMd },
 	{ fileName: "reviewer.md", template: reviewerMd },
 	{ fileName: "security-reviewer.md", template: securityReviewerMd },
 	{ fileName: "librarian.md", template: librarianMd },
 	{ fileName: "api-designer.md", template: apiDesignerMd },
+	{ fileName: "designer.md", template: designerMd },
 	{ fileName: "backend.md", template: backendMd },
 	{ fileName: "debug.md", template: debugMd },
 	{ fileName: "devops.md", template: devopsMd },
