@@ -23,7 +23,7 @@
     },
     "packages/agent": {
       "name": "@oh-my-pi/pi-agent-core",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "dependencies": {
         "@oh-my-pi/pi-ai": "catalog:",
         "@oh-my-pi/pi-catalog": "catalog:",
@@ -42,7 +42,7 @@
     },
     "packages/ai": {
       "name": "@oh-my-pi/pi-ai",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "dependencies": {
         "@oh-my-pi/omptype": "catalog:",
         "@oh-my-pi/pi-catalog": "catalog:",
@@ -63,7 +63,7 @@
     },
     "packages/catalog": {
       "name": "@oh-my-pi/pi-catalog",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "dependencies": {
         "@oh-my-pi/omptype": "catalog:",
         "@oh-my-pi/pi-utils": "catalog:",
@@ -76,13 +76,12 @@
     },
     "packages/coding-agent": {
       "name": "@oh-my-pi/pi-coding-agent",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "bin": {
         "omp": "src/cli.ts",
       },
       "dependencies": {
         "@babel/parser": "catalog:",
-        "@oh-my-pi/hashline": "catalog:",
         "@oh-my-pi/omp-stats": "catalog:",
         "@oh-my-pi/omptype": "catalog:",
         "@oh-my-pi/pi-agent-core": "catalog:",
@@ -132,17 +131,6 @@
         "@types/react-dom": "catalog:",
       },
     },
-    "packages/hashline": {
-      "name": "@oh-my-pi/hashline",
-      "version": "18.1.5",
-      "dependencies": {
-        "@oh-my-pi/pi-natives": "catalog:",
-        "@oh-my-pi/pi-utils": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-      },
-    },
     "packages/metaharness": {
       "name": "@oh-my-pi/pi-metaharness",
       "version": "0.0.1",
@@ -150,7 +138,6 @@
         "metaharness": "src/server.ts",
       },
       "dependencies": {
-        "@oh-my-pi/hashline": "catalog:",
         "@oh-my-pi/pi-agent-core": "catalog:",
         "@oh-my-pi/pi-ai": "catalog:",
         "@oh-my-pi/pi-catalog": "catalog:",
@@ -179,7 +166,7 @@
     },
     "packages/mnemopi": {
       "name": "@oh-my-pi/pi-mnemopi",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "bin": {
         "mnemopi": "src/cli.ts",
       },
@@ -205,7 +192,7 @@
     },
     "packages/natives": {
       "name": "@oh-my-pi/pi-natives",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "devDependencies": {
         "@napi-rs/cli": "catalog:",
         "@types/bun": "catalog:",
@@ -220,7 +207,7 @@
     },
     "packages/omptype": {
       "name": "@oh-my-pi/omptype",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "devDependencies": {
         "@ark/attest": "0.56.3",
         "@ark/schema": "0.56.2",
@@ -233,7 +220,7 @@
     },
     "packages/snapcompact": {
       "name": "@oh-my-pi/snapcompact",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "dependencies": {
         "@oh-my-pi/pi-ai": "catalog:",
         "@oh-my-pi/pi-catalog": "catalog:",
@@ -247,7 +234,7 @@
     },
     "packages/stats": {
       "name": "@oh-my-pi/omp-stats",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "bin": {
         "omp-stats": "./src/index.ts",
       },
@@ -272,7 +259,7 @@
     },
     "packages/tui": {
       "name": "@oh-my-pi/pi-tui",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "dependencies": {
         "@oh-my-pi/pi-natives": "catalog:",
         "@oh-my-pi/pi-utils": "catalog:",
@@ -289,7 +276,6 @@
         "@babel/parser": "catalog:",
         "@babel/traverse": "catalog:",
         "@babel/types": "catalog:",
-        "@oh-my-pi/hashline": "catalog:",
         "@oh-my-pi/pi-agent-core": "catalog:",
         "@oh-my-pi/pi-ai": "catalog:",
         "@oh-my-pi/pi-coding-agent": "catalog:",
@@ -308,7 +294,7 @@
     },
     "packages/utils": {
       "name": "@oh-my-pi/pi-utils",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "dependencies": {
         "@oh-my-pi/pi-natives": "catalog:",
       },
@@ -318,7 +304,7 @@
     },
     "packages/wire": {
       "name": "@oh-my-pi/pi-wire",
-      "version": "18.1.5",
+      "version": "18.1.6",
       "devDependencies": {
         "@types/bun": "catalog:",
       },
@@ -353,19 +339,18 @@
     "@babel/types": "^7.29.7",
     "@huggingface/transformers": "^4.2.0",
     "@napi-rs/cli": "3.7.2",
-    "@oh-my-pi/hashline": "18.1.5",
-    "@oh-my-pi/omp-stats": "18.1.5",
-    "@oh-my-pi/omptype": "18.1.5",
-    "@oh-my-pi/pi-agent-core": "18.1.5",
-    "@oh-my-pi/pi-ai": "18.1.5",
-    "@oh-my-pi/pi-catalog": "18.1.5",
-    "@oh-my-pi/pi-coding-agent": "18.1.5",
-    "@oh-my-pi/pi-mnemopi": "18.1.5",
-    "@oh-my-pi/pi-natives": "18.1.5",
-    "@oh-my-pi/pi-tui": "18.1.5",
-    "@oh-my-pi/pi-utils": "18.1.5",
-    "@oh-my-pi/pi-wire": "18.1.5",
-    "@oh-my-pi/snapcompact": "18.1.5",
+    "@oh-my-pi/omp-stats": "18.1.6",
+    "@oh-my-pi/omptype": "18.1.6",
+    "@oh-my-pi/pi-agent-core": "18.1.6",
+    "@oh-my-pi/pi-ai": "18.1.6",
+    "@oh-my-pi/pi-catalog": "18.1.6",
+    "@oh-my-pi/pi-coding-agent": "18.1.6",
+    "@oh-my-pi/pi-mnemopi": "18.1.6",
+    "@oh-my-pi/pi-natives": "18.1.6",
+    "@oh-my-pi/pi-tui": "18.1.6",
+    "@oh-my-pi/pi-utils": "18.1.6",
+    "@oh-my-pi/pi-wire": "18.1.6",
+    "@oh-my-pi/snapcompact": "18.1.6",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/api-logs": "^0.220.0",
     "@opentelemetry/context-async-hooks": "^2.9.0",
@@ -749,8 +734,6 @@
     "@oh-my-pi/browser-relay": ["@oh-my-pi/browser-relay@workspace:packages/browser-relay"],
 
     "@oh-my-pi/collab-web": ["@oh-my-pi/collab-web@workspace:packages/collab-web"],
-
-    "@oh-my-pi/hashline": ["@oh-my-pi/hashline@workspace:packages/hashline"],
 
     "@oh-my-pi/omp-stats": ["@oh-my-pi/omp-stats@workspace:packages/stats"],
 
@@ -1314,7 +1297,7 @@
 
     "dot-prop": ["dot-prop@10.2.0", "", { "dependencies": { "type-fest": "^5.0.0" } }, "sha512-BTJ9aZYL3vCfZlZOBLy9v8TUqWGQ0pzFnygKwFZt5udj6viBoFIBviKPUoZLDCPn1FoXffv6McQFDenrm5Krfw=="],
 
-    "electron-to-chromium": ["electron-to-chromium@1.5.416", "", {}, "sha512-K6bvB2BjnNrugtIih6ewlbBI9DXa976jIdiIlRLHhBoEI9a4JaQjjHyF+A1IQI543aQYR4LnmOrT/K5fZj0aPA=="],
+    "electron-to-chromium": ["electron-to-chromium@1.5.417", "", {}, "sha512-4T+DTDWuMPM4aHlHwWdAVCVWwp7LDilnhzkj+c/Lbj91XSQrLuOmZSLtS9Q4iIqjlPUbPOnC624zDVVHCHaolQ=="],
 
     "emnapi": ["emnapi@1.11.3", "", { "peerDependencies": { "node-addon-api": ">= 6.1.0" }, "optionalPeers": ["node-addon-api"] }, "sha512-+/ZS90YK/rYfVOHtGLHkGffVsnmD/MAKaBHio+Y4XAtg75RLr4cveV/w0jTkUdLM1CcAlaRgG76mpIemWAlk0A=="],
 
@@ -1440,7 +1423,7 @@
 
     "ignore": ["ignore@5.3.2", "", {}, "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g=="],
 
-    "import-in-the-middle": ["import-in-the-middle@3.3.3", "", { "dependencies": { "cjs-module-lexer": "^2.2.0", "es-module-lexer": "^2.2.0", "module-details-from-path": "^1.0.4" } }, "sha512-AiohS3H80sXO6owEltjGX+glb7qXaDhBoJb9XcQVH4UI207xu/bDLUcadVKp7Qe576reg9yr/PXZjV5qx8gfbA=="],
+    "import-in-the-middle": ["import-in-the-middle@3.4.0", "", { "dependencies": { "cjs-module-lexer": "^2.2.0", "es-module-lexer": "^2.2.0", "module-details-from-path": "^1.0.4" } }, "sha512-Xfjwfarhe+LGmoaof+sexeNo3sGRysb5x56WrZLwHtmqT0OilSKtVWkv0lrCcMgSKyKP9oBogBAisHZvtJH0aw=="],
 
     "imurmurhash": ["imurmurhash@0.1.4", "", {}, "sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA=="],
 
@@ -1790,7 +1773,7 @@
 
     "type-check": ["type-check@0.4.0", "", { "dependencies": { "prelude-ls": "^1.2.1" } }, "sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew=="],
 
-    "type-fest": ["type-fest@5.8.0", "", { "dependencies": { "tagged-tag": "^1.0.0" } }, "sha512-YGYEVz3Fm5iy/AybuA0oyNFq7H4CgQNfRp/qfe8nurE1kuCeNm3/vfm9X4Mtl+qLyaKJUh5xrFZwogr41SMjYA=="],
+    "type-fest": ["type-fest@5.9.0", "", { "dependencies": { "tagged-tag": "^1.0.0" } }, "sha512-yANm3Jr3GiJ1qgJlxGAVxTOIcEOk1rhQHamlXtnrCK7EHP4HeM9OGxtMg/W7HFdrVzw/ZWJKGVIJusVH85sLtw=="],
 
     "typed-query-selector": ["typed-query-selector@2.12.2", "", {}, "sha512-EOPFbyIub4ngnEdqi2yOcNeDLaX/0jcE1JoAXQDDMIthap7FoN795lc/SHfIq2d416VufXpM8z/lD+WRm2gfOQ=="],
 

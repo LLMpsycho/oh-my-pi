@@ -83,6 +83,7 @@ export async function runSharpshooterConsolidation(options: {
 	cwd: string;
 	settings: Settings;
 	modelRegistry: ModelRegistry;
+	sessionId: string;
 	force?: boolean;
 }): Promise<SharpshooterConsolidationResult> {
 	const projectKey = options.settings.get("memory.projectKey");
@@ -115,6 +116,7 @@ async function consolidateLocked(
 		cwd: string;
 		settings: Settings;
 		modelRegistry: ModelRegistry;
+		sessionId: string;
 		force?: boolean;
 	},
 	bankDir: string,
@@ -167,7 +169,8 @@ async function consolidateLocked(
 					tools: [replaceMemoryFilesTool],
 				},
 				{
-					apiKey: options.modelRegistry.resolver(model),
+					apiKey: options.modelRegistry.resolver(model, options.sessionId),
+					sessionId: options.sessionId,
 					maxTokens: 8192,
 					reasoning: clampThinkingLevelForModel(model, Effort.Medium),
 					toolChoice: "required",

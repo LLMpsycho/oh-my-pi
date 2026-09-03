@@ -413,6 +413,7 @@ async function runPhase1(options: MemoryStartupOptions): Promise<void> {
 				claim,
 				model: phase1Model,
 				apiKey: modelRegistry.resolver(phase1Model, session.sessionId),
+				sessionId: session.sessionId,
 				modelMaxTokens: computeModelTokenBudget(phase1Model, config),
 				config,
 				metadata: session.agent?.metadataForProvider(phase1Model.provider),
@@ -575,6 +576,7 @@ async function runPhase2(options: MemoryStartupOptions): Promise<void> {
 				memoryRoot,
 				model: phase2Model,
 				apiKey: modelRegistry.resolver(phase2Model, session.sessionId),
+				sessionId: session.sessionId,
 				metadata: session.agent?.metadataForProvider(phase2Model.provider),
 			});
 			if (!isMemoryStartupActive(options)) return;
@@ -733,6 +735,7 @@ async function runStage1Job(options: {
 	claim: Stage1Claim;
 	model: Model;
 	apiKey: ApiKey;
+	sessionId: string;
 	modelMaxTokens: number;
 	config: MemoryRuntimeConfig;
 	metadata?: Record<string, unknown>;
@@ -769,6 +772,7 @@ async function runStage1Job(options: {
 				},
 				{
 					apiKey,
+					sessionId: options.sessionId,
 					metadata: options.metadata,
 					maxTokens: Math.max(1024, Math.min(4096, Math.floor(modelMaxTokens * 0.2))),
 					reasoning: clampThinkingLevelForModel(model, Effort.Low),
@@ -879,6 +883,7 @@ async function runConsolidationModel(options: {
 	memoryRoot: string;
 	model: Model;
 	apiKey: ApiKey;
+	sessionId: string;
 	metadata?: Record<string, unknown>;
 }): Promise<{
 	memoryMd: string;
@@ -908,6 +913,7 @@ async function runConsolidationModel(options: {
 			},
 			{
 				apiKey,
+				sessionId: options.sessionId,
 				metadata: options.metadata,
 				maxTokens: 8192,
 				reasoning: clampThinkingLevelForModel(model, Effort.Medium),

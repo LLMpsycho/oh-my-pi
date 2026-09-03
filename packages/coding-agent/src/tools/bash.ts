@@ -956,6 +956,7 @@ export class BashTool implements AgentTool<typeof bashSchemaBase | typeof bashSc
 			cwd: this.session.cwd,
 			settings: this.session.settings,
 			sessionFile: this.session.getSessionFile() ?? undefined,
+			rules: this.session.activeRules,
 			localOptions: {
 				getArtifactsDir: this.session.getArtifactsDir,
 				getSessionId: this.session.getSessionId,

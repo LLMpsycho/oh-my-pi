@@ -21,6 +21,7 @@ export function startSharpshooterScheduler(options: {
 	cwd: string;
 	settings: Settings;
 	modelRegistry: ModelRegistry;
+	sessionId: string;
 }): () => void {
 	const projectKey = options.settings.get("memory.projectKey");
 	const bankDir = sharpshooterBankDir(options.agentDir, options.cwd, projectKey);
